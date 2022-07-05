@@ -17,14 +17,14 @@ pub struct BoundingBox2D {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum TurnKind {
+pub enum TurnKind {
     Collinear,
     Right,
     Left,
 }
 
 // indicates whether a --> b --> c is a left turn or not
-fn turn_kind(a: &Vec2, b: &Vec2, c: &Vec2) -> TurnKind {
+pub fn turn_kind(a: &Vec2, b: &Vec2, c: &Vec2) -> TurnKind {
     match (*b - *a).cross(&(*c - *a)).partial_cmp(&0.).unwrap() {
         Ordering::Equal => TurnKind::Collinear,
         Ordering::Greater => TurnKind::Left,
@@ -48,9 +48,9 @@ fn convex_hull(pts: &[Vec2]) -> Vec<Vec2> {
 
     let mut pt_clone = pts.to_vec();
     pt_clone.sort_unstable_by(|&a, &b| {
-     let e0 = (a - *p).normalize().x();
-     let e1 = (b - *p).normalize().x();
-     e0.total_cmp(&e1)
+        let e0 = (a - *p).normalize().x();
+        let e1 = (b - *p).normalize().x();
+        e0.total_cmp(&e1)
     });
 
     let mut out = vec![pt_clone[0], pt_clone[1]];

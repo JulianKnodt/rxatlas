@@ -57,6 +57,11 @@ impl Vec2 {
     fn cross(&self, other: &Self) -> f32 {
         self.x() * other.y() - self.y() * other.x()
     }
+    /// Gets an orthogonal vector to this vector
+    #[inline]
+    fn ortho(&self) -> Vec2 {
+        Vector([-self.y(), self.x()])
+    }
 }
 
 impl Vec3 {
@@ -135,6 +140,12 @@ impl_ops!(std::ops::Add, std::ops::Add<f32>, add, +);
 impl_ops!(std::ops::Sub, std::ops::Sub<f32>, sub, -);
 impl_ops!(std::ops::Mul, std::ops::Mul<f32>, mul, *);
 impl_ops!(std::ops::Div, std::ops::Div<f32>, div, /);
+impl<const N: usize> std::ops::Neg for Vector<N> {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self(from_fn(|i| -self.0[i]))
+    }
+}
 
 macro_rules! impl_assign_ops {
   ($op: ty, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
@@ -383,3 +394,72 @@ fn qla_algorithm(mut q: [[f32; 3]; 3], mut diag: Vec3, mut subd: [f32; 3]) {
 }
 
 pub mod bb2d;
+use bb2d::{turn_kind, TurnKind};
+
+/// Checks if a 2D point is within a triangle
+fn point_in_triangle(p: &Vec2, [a, b, c]: &[Vec2; 3]) -> bool {
+    [turn_kind(p, a, b), turn_kind(p, b, c), turn_kind(p, c, a)]
+        .into_iter()
+        .all(|s| s == TurnKind::Left || s == TurnKind::Collinear)
+}
+
+/// Creates a mesh grid of points, i.e. evenly spaced between min and max, with a given width
+/// and height
+fn mesh_grid<const X: usize, const Y: usize>(min: Vec2, max: Vec2) -> [[Vec2; X]; Y] {
+    let bd = max - min;
+    std::array::from_fn(|y| {
+        std::array::from_fn(|x| {
+            let dx = (x as f32 / X as f32);
+            let dy = (y as f32 / Y as f32);
+            min + bd * Vector([dx, dy])
+        })
+    })
+}
+
+#[test]
+fn test_point_in_triangle() {
+    let mut pv = point_vis::PointVisualizer::new();
+    let pts = mesh_grid::<100, 100>(Vector([0.25; 2]), Vector([0.75; 2]));
+    let triangle = [Vector([0.3, 0.3]), Vector([0.7, 0.3]), Vector([0.5, 0.7])];
+    for row in pts {
+        for p in row {
+            pv.add_point(
+                p,
+                if point_in_triangle(&p, &triangle) {
+                    [0, 255, 0]
+                } else {
+                    [255, 0, 0]
+                },
+            );
+        }
+    }
+    for p in triangle {
+        pv.add_point(p, [0, 0, 255]);
+    }
+    pv.save("test_point_in_triangle.png");
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct RasterTri {
+    verts: [Vec2; 3],
+    normals: [Vec2; 3],
+}
+
+impl RasterTri {
+    fn new(verts: [Vec2; 3]) -> Self {
+        todo!()
+    }
+    fn ensure_forward_facing(verts: &mut [Vec2; 3]) {
+        if turn_kind(&verts[0], &verts[1], &verts[2]) == TurnKind::Right {
+            verts.swap(0, 1);
+            assert_eq!(turn_kind(&verts[0], &verts[1], &verts[2]), TurnKind::Left)
+        }
+    }
+    fn compute_unit_inward_normals(&[v0, v1, v2]: &[Vec2; 3]) -> [Vec2; 3] {
+        [
+            (v0 - v1).ortho().normalize(),
+            (v1 - v2).ortho().normalize(),
+            (v2 - v0).ortho().normalize(),
+        ]
+    }
+}
