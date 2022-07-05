@@ -1,0 +1,385 @@
+#![allow(unused)]
+use std::array::from_fn;
+
+mod bvh;
+pub mod point_vis;
+pub mod rand;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Vector<const N: usize, T = f32>([T; N]);
+pub type Vec2 = Vector<2>;
+pub type Vec3 = Vector<3>;
+impl<const N: usize> Vector<N> {
+    /// Creates a zeroed vector.
+    pub fn zero() -> Self {
+        Self([0.0; N])
+    }
+    pub fn dot(&self, o: &Self) -> f32 {
+        self.0
+            .iter()
+            .zip(o.0.iter())
+            .map(|(l, r)| l * r)
+            .sum::<f32>()
+    }
+    pub fn length_sq(&self) -> f32 {
+        self.dot(self)
+    }
+    pub fn length(&self) -> f32 {
+        self.dot(self).sqrt()
+    }
+    pub fn normalize(&self) -> Self {
+        (*self) / self.length()
+    }
+    pub fn approx_equals(&self, o: &Self, eps: f32) -> bool {
+        (*self - *o).length() < eps
+    }
+    pub fn min(&self, o: &Self) -> Self {
+        Self(from_fn(|i| self.0[i].min(o.0[i])))
+    }
+    pub fn max(&self, o: &Self) -> Self {
+        Self(from_fn(|i| self.0[i].max(o.0[i])))
+    }
+    pub fn is_finite(&self) -> bool {
+        self.0.iter().copied().all(f32::is_finite)
+    }
+}
+
+impl Vec2 {
+    #[inline]
+    fn x(&self) -> f32 {
+        self.0[0]
+    }
+    #[inline]
+    fn y(&self) -> f32 {
+        self.0[1]
+    }
+    #[inline]
+    fn cross(&self, other: &Self) -> f32 {
+        self.x() * other.y() - self.y() * other.x()
+    }
+}
+
+impl Vec3 {
+    #[inline]
+    pub fn xy(&self) -> Vec2 {
+        Vector([self.0[0], self.0[1]])
+    }
+    #[inline]
+    fn x(&self) -> f32 {
+        self.0[0]
+    }
+    #[inline]
+    fn y(&self) -> f32 {
+        self.0[1]
+    }
+    #[inline]
+    fn z(&self) -> f32 {
+        self.0[1]
+    }
+    fn cross(&self, o: &Self) -> Self {
+        Self([
+            self.y() * o.z() - self.z() * o.y(),
+            self.z() * o.x() - self.x() * o.z(),
+            self.x() * o.y() - self.y() * o.x(),
+        ])
+    }
+}
+
+#[inline]
+fn eq_up_to(v: f32, o: f32, eps: f32) -> bool {
+    (v - o).abs() < eps * v.abs().min(o.abs()).min(1.0)
+}
+
+#[inline]
+pub fn triangle_area([p0, p1, p2]: [Vec2; 3]) -> f32 {
+    let e0 = p0 - p2;
+    let e1 = p1 - p2;
+    (e0.x() * e1.y() - e0.y() * e1.x()) / 2.0
+}
+
+pub fn lines_intersect([a0, a1]: [Vec2; 2], [b0, b1]: [Vec2; 2], eps: f32) -> bool {
+    let e0 = a1 - a0;
+    let e1 = b1 - b0;
+    let denom = -e1.x() * e0.y() + e0.x() * e1.y();
+    if eq_up_to(denom, 0., eps) {
+        // parallel lines
+        return false;
+    }
+    let s = -e0.y() * (a1.x() - b1.x()) + e0.x() * (a1.y() - b1.y());
+    let s = s / denom;
+    if s < eps || s > (1. - eps) {
+        return false;
+    }
+    let t = e1.x() * (a1.y() - b1.y()) - e1.y() * (a1.x() - b1.x());
+    t > eps && t < 1. - eps
+}
+
+macro_rules! impl_ops {
+  ($op: ty, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
+    impl<const N: usize> $op for Vector<N> {
+      type Output = Self;
+      fn $fn_name(self, o: Self) -> Self {
+        Self(from_fn(|i| self.0[i] $op_token o.0[i]))
+      }
+    }
+    impl<const N: usize> $scalar_op for Vector<N> {
+      type Output = Self;
+      fn $fn_name(self, o: f32) -> Self {
+        Self(from_fn(|i| self.0[i] $op_token o))
+      }
+    }
+  }
+}
+
+impl_ops!(std::ops::Add, std::ops::Add<f32>, add, +);
+impl_ops!(std::ops::Sub, std::ops::Sub<f32>, sub, -);
+impl_ops!(std::ops::Mul, std::ops::Mul<f32>, mul, *);
+impl_ops!(std::ops::Div, std::ops::Div<f32>, div, /);
+
+macro_rules! impl_assign_ops {
+  ($op: ty, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
+    impl<const N: usize> $op for Vector<N> {
+      fn $fn_name(&mut self, o: Self) {
+        for i in 0..N {
+          self.0[i] $op_token o.0[i];
+        }
+      }
+    }
+
+    impl<const N: usize> $scalar_op for Vector<N> {
+      fn $fn_name(&mut self, o: f32) {
+        for i in 0..N {
+          self.0[i] $op_token o;
+        }
+      }
+    }
+  }
+}
+
+impl_assign_ops!(std::ops::AddAssign, std::ops::AddAssign<f32>, add_assign, +=);
+impl_assign_ops!(std::ops::SubAssign, std::ops::SubAssign<f32>, sub_assign, -=);
+impl_assign_ops!(std::ops::MulAssign, std::ops::MulAssign<f32>, mul_assign, *=);
+impl_assign_ops!(std::ops::DivAssign, std::ops::DivAssign<f32>, div_assign, /=);
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct Extent<const N: usize> {
+    min: Vector<N>,
+    max: Vector<N>,
+}
+pub type Extent2 = Extent<2>;
+pub type AABB = Extent<3>;
+
+impl<const N: usize> Extent<N> {
+    pub fn new(a: Vector<N>, b: Vector<N>) -> Self {
+        Self {
+            min: a.min(&b),
+            max: a.max(&b),
+        }
+    }
+    /// Returns an AABB which contains nothing.
+    pub fn empty() -> Self {
+        Self {
+            min: Vector([f32::INFINITY; N]),
+            max: Vector([f32::NEG_INFINITY; N]),
+        }
+    }
+    pub fn reset(&mut self) {
+        self.min = Vector([f32::INFINITY; N]);
+        self.max = Vector([f32::NEG_INFINITY; N]);
+    }
+    pub fn add_point(&mut self, p: &Vector<N>) {
+        self.min = self.min.min(p);
+        self.max = self.max.max(p);
+    }
+    pub fn add_extent(&mut self, v: &Self) {
+        self.min = self.min.min(&v.min);
+        self.max = self.max.max(&v.max);
+    }
+    pub fn expand_by(&mut self, radius: f32) {
+        self.min -= radius;
+        self.max += radius;
+    }
+    /// Returns the center of this extent
+    pub fn midpoint(&self) -> Vector<N> {
+        self.min + (self.max - self.min) / 2.
+    }
+    pub fn intersects(&self, other: &Self) -> bool {
+        for i in 0..N {
+            if self.min.0[i] > other.max.0[i] || self.max.0[i] < other.min.0[i] {
+                return false;
+            }
+        }
+        true
+    }
+    /// Which dimension of this box is largest?
+    pub fn largest_dimension(&self) -> usize {
+        let extent = self.max - self.min;
+        extent
+            .0
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0
+    }
+}
+
+/// Computes a tangent to a normal vector.
+fn compute_tangent_to(n: &Vec3) -> Vec3 {
+    // assume n is unit vector here
+    let tangent = if n.x().abs() < n.y().abs() && n.x().abs() < n.z().abs() {
+        Vector([1., 0., 0.])
+    } else if n.y().abs() < n.z().abs() {
+        Vector([0., 1., 0.])
+    } else {
+        Vector([0., 0., 1.])
+    };
+    let tangent = tangent - *n * n.dot(&tangent);
+    tangent.normalize()
+}
+fn compute_bitangent_to(n: &Vec3, tangent: &Vec3) -> Vec3 {
+    n.cross(tangent)
+}
+
+pub mod plane;
+
+#[derive(Debug, Clone, PartialEq)]
+struct Basis {
+    normal: Vec3,
+    tangent: Vec3,
+    bitangent: Vec3,
+}
+
+#[inline]
+fn centroid(pts: &[Vec3]) -> Vec3 {
+    pts.iter().fold(Vector([0., 0., 0.]), |a, &b| a + b) / (pts.len() as f32)
+}
+
+fn covariance(pts: &[Vec3]) -> [f32; 6] {
+    let centroid = centroid(pts);
+    // TODO is it cleaner to have this as a fold or a for loop
+    pts.iter().fold([0.; 6], |mut cov, &p| {
+        let v = p - centroid;
+        cov[0] += v.x() * v.x();
+        cov[1] += v.x() * v.y();
+        cov[2] += v.x() * v.z();
+        cov[3] += v.y() * v.y();
+        cov[4] += v.y() * v.z();
+        cov[5] += v.z() * v.z();
+        cov
+    })
+}
+
+impl Basis {
+    fn from_eigen(pts: &[Vec3]) -> Option<Basis> {
+        let cov = covariance(pts);
+        if cov[0] == 0. && cov[3] == 0. && cov[5] == 0. {
+            return None;
+        }
+        let (eigenvalues, eigenvectors) = eigen_solve(cov)?;
+        let [t, bit, n] = eigenvectors;
+        Some(Self {
+            normal: n.normalize(),
+            tangent: t.normalize(),
+            bitangent: bit.normalize(),
+        })
+    }
+}
+
+/// Computs eigenvalues and eigenvectors for given covariance matrix.
+fn eigen_solve(cov: [f32; 6]) -> Option<(Vec3, [Vec3; 3])> {
+    let work = [
+        [cov[0], cov[1], cov[2]],
+        [cov[1], cov[3], cov[4]],
+        [cov[2], cov[4], cov[5]],
+    ];
+    let (mat, diag, subd) = householder_transformation(&work);
+    todo!();
+}
+
+// takes a symmetric matrix, and performs a householder transformation to get
+// orthogonal matrix Q, diagonal t, and subdiagonal elements.
+fn householder_transformation(mat: &[[f32; 3]; 3]) -> ([[f32; 3]; 3], Vec3, [f32; 3]) {
+    const EPS: f32 = 1e-8;
+    let &[[a, b, c], [_, d, e], [_, _, f]] = mat;
+    if c.abs() >= EPS {
+        let ell = (b * b + c * c).sqrt();
+        let b = b / ell;
+        let c = c / ell;
+        let q = 2. * b * e + c * (f - d);
+        (
+            [[1., 0., 0.], [0., b, c], [0., c, -b]],
+            Vector([a, d + c * q, f - c * q]),
+            [ell, e - b * q, 0.],
+        )
+    } else {
+        (
+            [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            Vector([a, d, f]),
+            [b, e, 0.],
+        )
+    }
+}
+
+// QL iteration with implicit shifting to reduce matrix from tridiagonal
+// to diagonal
+fn qla_algorithm(mut q: [[f32; 3]; 3], mut diag: Vec3, mut subd: [f32; 3]) {
+    const MAX_ITER: usize = 32;
+    for dim in 0..3 {
+        for iter in 0..MAX_ITER {
+            assert_ne!(iter, MAX_ITER);
+            let mut m = dim;
+            while m <= 1 {
+                // let dd = diag.0[m].abs() + diag.0[m+1].abs()
+                // This line differs from original, but I'm not sure why the origina was like it
+                // was.
+                // https://github.com/jpcy/xatlas/blob/16ace528acd2cf1f16a7c0dde99c42c486488dbe/source/xatlas/xatlas.cpp#L1858
+                if subd[m].abs() == 0. {
+                    break;
+                }
+                m += 1
+            }
+            if m == dim {
+                break;
+            }
+            let g = (diag.0[dim + 1] - diag.0[dim]) / (2.0 * subd[dim]);
+            let mut r = (g * g + 1.).sqrt();
+            let mut g = diag.0[m] - diag.0[dim] + subd[dim] / (g + (if g < 0. { -r } else { r }));
+
+            let mut s = 1.;
+            let mut c = 1.;
+            let mut p = 0.;
+            for i in (dim..=(m - 1)).rev() {
+                let mut f = s * subd[i];
+                let b = c * subd[i];
+                if f.abs() >= g.abs() {
+                    c = g / f;
+                    r = (c * c + 1.).sqrt();
+                    s = 1. / r;
+                    c *= s;
+                } else {
+                    s = f / g;
+                    r = (s * s + 1.).sqrt();
+                    subd[i + 1] = g * r;
+                    c = 1. / r;
+                    s *= c;
+                }
+                g = diag.0[i + 1] - p;
+                r = (diag.0[i] - g) * s + 2. * b * c;
+                p = s * r;
+                diag.0[i + 1] = g + p;
+                g = c * r - b;
+                for k in 0..3 {
+                    f = q[k][i + 1];
+                    q[k][i + 1] = s * q[k][i] + c * f;
+                    q[k][i] = c * q[k][i] - s * f;
+                }
+            }
+            diag.0[dim] -= p;
+            subd[dim] = g;
+            subd[m] = 0.;
+        }
+    }
+}
+
+pub mod bb2d;
