@@ -42,6 +42,12 @@ impl<const N: usize> Vector<N> {
     pub fn is_finite(&self) -> bool {
         self.0.iter().copied().all(f32::is_finite)
     }
+    pub fn cast<T>(&self) -> [T; N]
+    where
+        f32: Into<T>,
+    {
+        self.0.map(|v| v.into())
+    }
 }
 
 impl Vec2 {
@@ -446,8 +452,14 @@ pub struct RasterTri {
 }
 
 impl RasterTri {
-    fn new(verts: [Vec2; 3]) -> Self {
-        todo!()
+    fn new(mut verts: [Vec2; 3]) -> Self {
+        Self::ensure_forward_facing(&mut verts);
+        let normals = if triangle_area(verts) > 0. {
+            Self::compute_inward_normals(&verts)
+        } else {
+            [Vector::zero(); 3]
+        };
+        Self { verts, normals }
     }
     fn ensure_forward_facing(verts: &mut [Vec2; 3]) {
         if turn_kind(&verts[0], &verts[1], &verts[2]) == TurnKind::Right {
@@ -455,7 +467,7 @@ impl RasterTri {
             assert_eq!(turn_kind(&verts[0], &verts[1], &verts[2]), TurnKind::Left)
         }
     }
-    fn compute_unit_inward_normals(&[v0, v1, v2]: &[Vec2; 3]) -> [Vec2; 3] {
+    fn compute_inward_normals(&[v0, v1, v2]: &[Vec2; 3]) -> [Vec2; 3] {
         [
             (v0 - v1).ortho().normalize(),
             (v1 - v2).ortho().normalize(),
@@ -463,3 +475,5 @@ impl RasterTri {
         ]
     }
 }
+
+pub mod mesh;
