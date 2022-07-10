@@ -12,7 +12,7 @@ impl Edge {
 
 #[derive(Debug, Default)]
 struct Mesh {
-    edges: HashSet<Edge>,
+    edges: HashMap<Edge, usize>,
     verts: Vec<Vec3>,
     normals: Vec<Vec3>,
     tex_coords: Vec<Vec2>,
@@ -31,12 +31,17 @@ impl Mesh {
     pub fn add_face(&mut self, idxs: [usize; 3]) {
         self.face_indices.push(idxs);
         for i in 0..3 {
-            self.edges.insert(Edge::new(idxs[i], idxs[(i + 1) % 3]));
+            let amt = self
+                .edges
+                .entry(Edge::new(idxs[i], idxs[(i + 1) % 3]))
+                .or_insert(0);
+            *amt = *amt + 1;
         }
     }
     pub fn num_faces(&self) -> usize {
         self.face_indices.len()
     }
+    #[inline]
     pub fn face(&self, i: usize) -> [&Vec3; 3] {
         self.face_indices[i].map(move |idx| &self.verts[idx])
     }
@@ -70,5 +75,18 @@ impl Mesh {
             });
             (i, iter)
         })
+    }
+    /// Returns edges which are boundaries of cuts
+    pub fn boundary_edges(&self) -> impl Iterator<Item = Edge> + '_ {
+        self.edges
+            .iter()
+            .filter(|&(_, &v)| v == 1)
+            .map(|(k, v)| k)
+            .copied()
+    }
+    pub fn surface_area(&self) -> f32 {
+        (0..self.num_faces())
+            .map(|i| super::triangle3d_area(self.face(i).map(|e| *e)))
+            .sum()
     }
 }

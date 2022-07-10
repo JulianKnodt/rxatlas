@@ -102,10 +102,14 @@ fn eq_up_to(v: f32, o: f32, eps: f32) -> bool {
 }
 
 #[inline]
-pub fn triangle_area([p0, p1, p2]: [Vec2; 3]) -> f32 {
+pub fn triangle2d_area([p0, p1, p2]: [Vec2; 3]) -> f32 {
     let e0 = p0 - p2;
     let e1 = p1 - p2;
     (e0.x() * e1.y() - e0.y() * e1.x()) / 2.0
+}
+
+pub fn triangle3d_area([p0, p1, p2]: [Vec3; 3]) -> f32 {
+    (p2 - p1).cross(&(p0 - p1)).length() / 2.0
 }
 
 pub fn lines_intersect([a0, a1]: [Vec2; 2], [b0, b1]: [Vec2; 2], eps: f32) -> bool {
@@ -454,7 +458,7 @@ pub struct RasterTri {
 impl RasterTri {
     fn new(mut verts: [Vec2; 3]) -> Self {
         Self::ensure_forward_facing(&mut verts);
-        let normals = if triangle_area(verts) > 0. {
+        let normals = if triangle2d_area(verts) > 0. {
             Self::compute_inward_normals(&verts)
         } else {
             [Vector::zero(); 3]
