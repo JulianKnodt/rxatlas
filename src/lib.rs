@@ -109,7 +109,7 @@ pub fn triangle2d_area([p0, p1, p2]: [Vec2; 3]) -> f32 {
 }
 
 pub fn triangle3d_area([p0, p1, p2]: [Vec3; 3]) -> f32 {
-    (p2 - p1).cross(&(p0 - p1)).length() / 2.0
+    (p1 - p0).cross(&(p2 - p0)).length() / 2.0
 }
 
 pub fn lines_intersect([a0, a1]: [Vec2; 2], [b0, b1]: [Vec2; 2], eps: f32) -> bool {
