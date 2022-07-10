@@ -481,3 +481,17 @@ impl RasterTri {
 }
 
 pub mod mesh;
+
+pub fn point_on_line(&p: &Vec3, &[l0, l1]: &[Vec3; 2], eps: f32) -> Option<f32> {
+    if p.approx_equals(&l0, eps) {
+        return Some(0.);
+    } else if p.approx_equals(&l1, eps) {
+        return Some(1.);
+    }
+    if triangle3d_area([p, l0, l1]) > eps {
+        return None;
+    }
+    let line = l1 - l0;
+    let t = (p - l0).dot(&line) / line.length();
+    Some(t)
+}
