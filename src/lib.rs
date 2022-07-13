@@ -28,7 +28,7 @@ impl<const N: usize> Vector<N> {
         self.dot(self).sqrt()
     }
     pub fn normalize(&self) -> Self {
-        (*self) / self.length()
+        (*self) / (self.length() + 1e-6)
     }
     pub fn approx_equals(&self, o: &Self, eps: f32) -> bool {
         (*self - *o).length() < eps
@@ -108,6 +108,7 @@ pub fn triangle2d_area([p0, p1, p2]: [Vec2; 3]) -> f32 {
     (e0.x() * e1.y() - e0.y() * e1.x()) / 2.0
 }
 
+#[inline]
 pub fn triangle3d_area([p0, p1, p2]: [Vec3; 3]) -> f32 {
     (p1 - p0).cross(&(p2 - p0)).length() / 2.0
 }
@@ -272,7 +273,7 @@ struct Basis {
 }
 
 #[inline]
-fn centroid(pts: &[Vec3]) -> Vec3 {
+pub fn centroid(pts: &[Vec3]) -> Vec3 {
     pts.iter().fold(Vector([0., 0., 0.]), |a, &b| a + b) / (pts.len() as f32)
 }
 
@@ -494,4 +495,13 @@ pub fn point_on_line(&p: &Vec3, &[l0, l1]: &[Vec3; 2], eps: f32) -> Option<f32> 
     let line = l1 - l0;
     let t = (p - l0).dot(&line) / line.length();
     Some(t)
+}
+
+/// An intersection of a ray with the surface of mesh. Contains the 3D position of intersection,
+/// distance along the ray, and face index it intersected.
+#[derive(Debug, Clone, Copy)]
+struct Intersection {
+    pos: Vec3,
+    face: usize,
+    t: f32,
 }

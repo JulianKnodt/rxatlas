@@ -1,7 +1,8 @@
 // based off of
 // https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
 
-use super::{Vec3, AABB};
+use super::mesh::Mesh;
+use super::{Vec3, Vector, AABB};
 
 /// A ray with an origin, direction, and a length
 #[derive(Debug, Clone, PartialEq)]
@@ -117,27 +118,30 @@ impl BVHNode {
     }
 }
 
+/// A bounding volume hierarchy (BVH) for a mesh.
 #[derive(Debug)]
-struct BVHTree {
+pub struct BVH<'a> {
+    mesh: &'a Mesh,
     size: usize,
     nodes: Vec<BVHNode>,
     root_node_idx: usize,
     nodes_used: usize,
 
-    tris: Vec<[Vec3; 3]>,
+    tris: Vec<usize>,
     centroids: Vec<Vec3>,
 }
 
-impl BVHTree {
-    pub fn new(size: usize, tris: Vec<[Vec3; 3]>) -> Self {
-        let centroids = tris
-            .iter()
-            .map(|&[a, b, c]| (a + b + c) / 3.)
+impl<'a> BVH<'a> {
+    pub fn new(mesh: &'a Mesh) -> Self {
+        let centroids = mesh
+            .faces()
+            .map(|f| f.pos(mesh).centroid())
             .collect::<Vec<_>>();
+        let size = mesh.num_faces();
         let nodes = vec![BVHNode::new(); size];
-        let num_prims = tris.len();
-
+        let tris = (0..size).collect::<Vec<_>>();
         let mut s = Self {
+            mesh,
             size,
             nodes,
             root_node_idx: 0,
@@ -146,7 +150,7 @@ impl BVHTree {
             centroids,
         };
         let root_node = &mut s.nodes[0];
-        root_node.num_prims = num_prims;
+        root_node.num_prims = size;
         s.update_node_bounds(0);
         s.subdivide(0);
         s
@@ -156,10 +160,11 @@ impl BVHTree {
         let node = &mut self.nodes[idx];
         node.aabb.reset();
         // TODO can add a layer of indirection here
-        for [p0, p1, p2] in &self.tris[node.first_prim()..node.first_prim() + node.num_prims] {
-            node.aabb.add_point(p0);
-            node.aabb.add_point(p1);
-            node.aabb.add_point(p2);
+        for &tri_idx in &self.tris[node.first_prim()..node.first_prim() + node.num_prims] {
+            let [p0, p1, p2] = self.mesh.face(tri_idx).pos(self.mesh).verts;
+            node.aabb.add_point(&p0);
+            node.aabb.add_point(&p1);
+            node.aabb.add_point(&p2);
         }
     }
     /// Subdivide this BVH into separate nodes for some number of the triangles it encloses.
@@ -219,7 +224,10 @@ impl BVHTree {
         }
         if node.is_leaf() {
             (node.first_prim()..node.first_prim() + node.num_prims)
-                .filter_map(|i| intersect_tri(&self.tris[i], ray, 1e-5))
+                .filter_map(|i| {
+                    let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
+                    intersect_tri(tri, ray, 1e-5)
+                })
                 .chain(curr_t.into_iter())
                 .min_by(|a, b| a.partial_cmp(b).unwrap())
         } else {
@@ -244,7 +252,8 @@ impl BVHTree {
         }
         if node.is_leaf() {
             for i in node.first_prim()..node.first_prim() + node.num_prims {
-                if tri_aabb(&self.tris[i]).intersects(aabb) {
+                let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
+                if tri_aabb(tri).intersects(aabb) {
                     // TODO this should be a reference to triangles somewhere else?
                     out.push(i);
                 }

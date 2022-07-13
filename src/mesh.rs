@@ -1,3 +1,4 @@
+use super::bvh::BVH;
 use super::{Vec2, Vec3, Vector};
 use std::collections::{HashMap, HashSet};
 
@@ -19,8 +20,8 @@ pub enum EdgeShareKind {
     Shared(usize, usize),
 }
 
-#[derive(Debug, Default)]
-struct Mesh {
+#[derive(Debug, Default, Clone)]
+pub struct Mesh {
     edge_face: HashMap<Edge, EdgeShareKind>,
 
     verts: Vec<Vec3>,
@@ -32,7 +33,7 @@ struct Mesh {
 /// Represents one triangular face on a mesh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Face<T> {
-    verts: [T; 3],
+    pub verts: [T; 3],
 }
 
 impl<T> Face<T> {
@@ -65,6 +66,20 @@ impl Face<Vec3> {
         let p2 = (v0 + v2) * l2 / total;
         p0 + p1 + p2
     }
+    pub fn barycentric_coord(&self, p: Vec3) -> Vec3 {
+        let [v0, v1, v2] = self.verts;
+        let a0 = super::triangle3d_area([v0, p, v1]);
+        let a1 = super::triangle3d_area([v1, p, v2]);
+        let a2 = super::triangle3d_area([v2, p, v0]);
+        let total_area = a0 + a1 + a2;
+        Vector([a0, a1, a2]) / total_area
+    }
+    /// Gets the global position of a barycentric coordinate for this triangle
+    pub fn bary_to_world(&self, bary: Vec3) -> Vec3 {
+        let [v0, v1, v2] = self.verts;
+        let Vector([u, v, w]) = bary;
+        v0 * u + v1 * v + v2 * w
+    }
     pub fn normal(&self) -> Vec3 {
         let [v0, v1, v2] = self.verts;
         (v1 - v0).cross(&(v2 - v0)).normalize()
@@ -87,12 +102,12 @@ impl Face<Edge> {
 }
 
 impl Face<usize> {
-    fn pos(&self, m: &Mesh) -> Face<Vec3> {
+    pub fn pos(&self, m: &Mesh) -> Face<Vec3> {
         Face {
             verts: self.verts.map(|vi| m.verts[vi]),
         }
     }
-    fn edges(&self) -> Face<Edge> {
+    pub fn edges(&self) -> Face<Edge> {
         let [vi0, vi1, vi2] = self.verts;
         Face {
             verts: [
@@ -185,6 +200,9 @@ impl Mesh {
             .get(e)
             .map(|esk| matches!(esk, EdgeShareKind::Boundary(..)))
     }
+    pub fn faces(&self) -> impl Iterator<Item = Face<usize>> + '_ {
+        (0..self.num_faces()).map(|i| self.face(i))
+    }
     pub fn surface_area(&self) -> f32 {
         (0..self.num_faces())
             .map(|i| self.face(i).pos(&self).area())
@@ -195,6 +213,9 @@ impl Mesh {
         (0..self.num_faces())
             .map(|i| self.face(i).pos(&self).area().abs())
             .sum()
+    }
+    pub fn centroid(&self) -> Vec3 {
+        super::centroid(&self.verts)
     }
     pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         self.face(i)
@@ -213,8 +234,33 @@ impl Mesh {
                 },
             })
     }
+    /// Returns a map of face index to face's connected component.
     pub fn face_components(&self) -> FaceComponents {
         FaceComponents::new(&self)
+    }
+
+    /// Extrudes this mesh in place by pushing each vertex in the direction of the average of
+    /// each of its normals.
+    pub fn extrude(&mut self, amt: f32) {
+        let mut cnts = vec![0; self.verts.len()];
+        for f in self.faces() {
+            for vi in f.into_iter() {
+                cnts[vi] += 1;
+            }
+        }
+        let mut extrude_amt = vec![Vector::<3>::zero(); self.verts.len()];
+        for f in self.faces() {
+            let n = f.pos(&self).normal();
+            for vi in f.into_iter() {
+                extrude_amt[vi] += n / (cnts[vi] as f32);
+            }
+        }
+        for (ex_amt, v) in extrude_amt.into_iter().zip(self.verts.iter_mut()) {
+            *v += ex_amt.normalize();
+        }
+    }
+    pub fn bvh(&self) -> BVH<'_> {
+        BVH::new(self)
     }
 }
 
@@ -222,8 +268,8 @@ impl Mesh {
 pub struct FaceComponents {
     /// Groups of faces, with their index as the value of a face.
     /// A "group" is just a connected component.
-    /// Key is face number, value is connected component number
-    assignments: HashMap<usize, u32>,
+    /// Key is face number, value is connected component number.
+    pub assignments: HashMap<usize, u32>,
 }
 
 impl FaceComponents {
@@ -250,5 +296,17 @@ impl FaceComponents {
             curr_group += any as u32;
         }
         FaceComponents { assignments }
+    }
+}
+
+// https://alain.xyz/research/baked-texture-generation/assets/gpuzen2-baked-texture-generation.pdf
+// implementation of baking components
+impl Mesh {
+    fn trace_ray(&self, face_idx: usize, bary: Vec3, smooth_normal: Vec3) -> (Vec3, Vec3) {
+        let f = self.face(face_idx);
+        let fp = f.pos(&self);
+        let pos = fp.bary_to_world(bary);
+        let dir = -fp.normal();
+        (pos, dir)
     }
 }
