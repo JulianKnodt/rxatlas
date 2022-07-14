@@ -6,8 +6,8 @@ use std::io::{self, BufRead, BufReader};
 
 #[derive(Default)]
 pub struct Obj {
-    objects: Vec<ObjObject>,
-    mtls: Vec<(String, MTL)>,
+    pub objects: Vec<ObjObject>,
+    pub mtls: Vec<(String, MTL)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -38,7 +38,7 @@ impl MTL {
     }
 }
 
-fn parse_face(f0: &str, f1: &str, f: &str, mat: Option<usize>) -> MeshFace {
+fn parse_face(f0: &str, f1: &str, f2: &str, mat: Option<usize>) -> MeshFace {
     let pusize = |v: &str| v.parse::<usize>().unwrap();
     let popt = |v: Option<&str>| v.and_then(|v| v.parse::<usize>().ok());
 
@@ -50,21 +50,21 @@ fn parse_face(f0: &str, f1: &str, f: &str, mat: Option<usize>) -> MeshFace {
         }
     };
     let (v0, vt0, vn0) = split_slash(f0);
-    let (v1, vt1, vn1) = split_slash(f0);
-    let (v2, vt2, vn2) = split_slash(f0);
-    let v = [v0, v1, v2];
+    let (v1, vt1, vn1) = split_slash(f1);
+    let (v2, vt2, vn2) = split_slash(f2);
+    let v = [v0 - 1, v1 - 1, v2 - 1];
     let vt = vt0
         .zip(vt1)
         .zip(vt2)
-        .map(|((vt0, vt1), vt2)| [vt0, vt1, vt2]);
+        .map(|((vt0, vt1), vt2)| [vt0 - 1, vt1 - 1, vt2 - 1]);
     let vn = vn0
         .zip(vn1)
         .zip(vn2)
-        .map(|((vn0, vn1), vn2)| [vn0, vn1, vn2]);
+        .map(|((vn0, vn1), vn2)| [vn0 - 1, vn1 - 1, vn2 - 1]);
     MeshFace { v, vt, vn, mat }
 }
 
-pub fn read(p: &str) -> io::Result<Obj> {
+pub fn parse(p: &str) -> io::Result<Obj> {
     let f = File::open(p)?;
     let mut buf_read = BufReader::new(f);
     let mut obj = Obj::default();
@@ -114,7 +114,7 @@ pub fn read(p: &str) -> io::Result<Obj> {
             }
             "mtllib" => {
                 let Some(mtl_file) = iter.next() else { panic!("Missing mtl file in {l}") };
-                let mtls = read_mtl(mtl_file)?;
+                let mtls = parse_mtl(mtl_file)?;
                 obj.mtls.extend(mtls);
             }
             "usemtl" => {
@@ -127,10 +127,13 @@ pub fn read(p: &str) -> io::Result<Obj> {
             _ => todo!("Unknown line {l}"),
         };
     }
+    if !curr_obj.is_empty() {
+        obj.objects.push(curr_obj);
+    }
     Ok(obj)
 }
 
-pub fn read_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
+pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
     let f = File::open(p)?;
     let mut buf_read = BufReader::new(f);
     let mut curr_mtl = MTL::default();

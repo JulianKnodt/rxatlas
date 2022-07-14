@@ -2,37 +2,7 @@
 // https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
 
 use super::mesh::Mesh;
-use super::{Vec3, Vector, AABB};
-
-/// A ray with an origin, direction, and a length
-#[derive(Debug, Clone, PartialEq)]
-pub struct Ray {
-    origin: Vec3,
-    dir: Vec3,
-}
-
-pub fn intersect_tri([p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32> {
-    let e0 = *p1 - *p0;
-    let e1 = *p2 - *p0;
-    let h = r.dir.cross(&e1);
-    let a = e0.dot(&h);
-    if -eps < a && a < eps {
-        return None;
-    }
-    let f = 1. / a;
-    let s = r.origin - *p0;
-    let u = f * s.dot(&h);
-    if u < 0. || u > 1. {
-        return None;
-    }
-    let q = s.cross(&e0);
-    let v = f * r.dir.dot(&q);
-    if v < 0. || v > 1. {
-        return None;
-    }
-    let t = f * e1.dot(&q);
-    Some(t).filter(|t| *t > eps)
-}
+use super::{intersect_tri, Intersection, Ray, Vec3, Vector, AABB};
 
 pub fn tri_aabb([p0, p1, p2]: &[Vec3; 3]) -> AABB {
     let mut out = AABB::new(*p0, *p1);
@@ -41,7 +11,7 @@ pub fn tri_aabb([p0, p1, p2]: &[Vec3; 3]) -> AABB {
 }
 
 /// Intersect a ray with an axis-aligned bounding box
-pub fn intersect_aabb(aabb: &AABB, r: &Ray, t: Option<f32>) -> bool {
+pub fn intersect_aabb(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> bool {
     let (tmin, tmax) = (0..3)
         .map(|i| {
             let tx1 = (aabb.min.0[i] - r.origin.0[i]) / r.dir.0[i];
@@ -50,7 +20,7 @@ pub fn intersect_aabb(aabb: &AABB, r: &Ray, t: Option<f32>) -> bool {
         })
         .reduce(|(amin, amax), (bmin, bmax)| (amin.max(bmin), amax.min(bmax)))
         .unwrap();
-    tmax >= tmin && tmax >= 0.0 && t.map(|t| tmin < t).unwrap_or(true)
+    tmax >= tmin && tmax >= 0.0 && hit.map(|hit| tmin < hit.t).unwrap_or(true)
 }
 
 /*
@@ -137,7 +107,7 @@ impl<'a> BVH<'a> {
             .faces()
             .map(|f| f.pos(mesh).centroid())
             .collect::<Vec<_>>();
-        let size = mesh.num_faces();
+        let size = 2 * mesh.num_faces() + 1;
         let nodes = vec![BVHNode::new(); size];
         let tris = (0..size).collect::<Vec<_>>();
         let mut s = Self {
@@ -213,11 +183,16 @@ impl<'a> BVH<'a> {
         self.subdivide(right_child_idx);
     }
 
-    pub fn intersects(&self, ray: &Ray) -> Option<f32> {
+    pub fn intersects(&self, ray: &Ray) -> Option<Intersection> {
         self.intersects_node(ray, self.root_node_idx, None)
     }
 
-    fn intersects_node(&self, ray: &Ray, idx: usize, curr_t: Option<f32>) -> Option<f32> {
+    fn intersects_node(
+        &self,
+        ray: &Ray,
+        idx: usize,
+        curr_t: Option<Intersection>,
+    ) -> Option<Intersection> {
         let node = &self.nodes[idx];
         if !intersect_aabb(&node.aabb, ray, curr_t) {
             return None;
@@ -226,18 +201,24 @@ impl<'a> BVH<'a> {
             (node.first_prim()..node.first_prim() + node.num_prims)
                 .filter_map(|i| {
                     let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
-                    intersect_tri(tri, ray, 1e-5)
+                    intersect_tri(tri, ray, 1e-5).map(|t| Intersection {
+                        t,
+                        face: self.tris[i],
+                    })
                 })
                 .chain(curr_t.into_iter())
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap())
         } else {
             let left = self.intersects_node(ray, node.left_child(), curr_t);
-            let right = self.intersects_node(ray, node.right_child(), option_min(left, curr_t));
+            let curr_nearest = [left, curr_t]
+                .into_iter()
+                .filter_map(|t| t)
+                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+            let right = self.intersects_node(ray, node.right_child(), curr_nearest);
             [left, right]
                 .into_iter()
                 .filter_map(|t| t)
-                .chain(curr_t.into_iter())
-                .min_by(|a, b| a.partial_cmp(b).unwrap())
+                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap())
         }
     }
 

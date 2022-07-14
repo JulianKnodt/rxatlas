@@ -59,20 +59,20 @@ impl<const N: usize> Vector<N> {
 
 impl Vec2 {
     #[inline]
-    fn x(&self) -> f32 {
+    pub fn x(&self) -> f32 {
         self.0[0]
     }
     #[inline]
-    fn y(&self) -> f32 {
+    pub fn y(&self) -> f32 {
         self.0[1]
     }
     #[inline]
-    fn cross(&self, other: &Self) -> f32 {
+    pub fn cross(&self, other: &Self) -> f32 {
         self.x() * other.y() - self.y() * other.x()
     }
     /// Gets an orthogonal vector to this vector
     #[inline]
-    fn ortho(&self) -> Vec2 {
+    pub fn ortho(&self) -> Vec2 {
         Vector([-self.y(), self.x()])
     }
 }
@@ -83,23 +83,21 @@ impl Vec3 {
         Vector([self.0[0], self.0[1]])
     }
     #[inline]
-    fn x(&self) -> f32 {
+    pub fn x(&self) -> f32 {
         self.0[0]
     }
     #[inline]
-    fn y(&self) -> f32 {
+    pub fn y(&self) -> f32 {
         self.0[1]
     }
     #[inline]
-    fn z(&self) -> f32 {
-        self.0[1]
+    pub fn z(&self) -> f32 {
+        self.0[2]
     }
-    fn cross(&self, o: &Self) -> Self {
-        Self([
-            self.y() * o.z() - self.z() * o.y(),
-            self.z() * o.x() - self.x() * o.z(),
-            self.x() * o.y() - self.y() * o.x(),
-        ])
+    pub fn cross(&self, o: &Self) -> Self {
+        let &Vector([x, y, z]) = self;
+        let &Vector([a, b, c]) = o;
+        Self([y * c - z * b, z * a - x * c, x * b - y * a])
     }
 }
 
@@ -233,6 +231,11 @@ impl<const N: usize> Extent<N> {
         self.min -= radius;
         self.max += radius;
     }
+    /// Computes the diagonal of this aabb, which spans the box.
+    #[inline]
+    pub fn extent(&self) -> Vector<N> {
+        self.max - self.min
+    }
     /// Returns the center of this extent
     pub fn midpoint(&self) -> Vector<N> {
         self.min + (self.max - self.min) / 2.
@@ -246,15 +249,21 @@ impl<const N: usize> Extent<N> {
         true
     }
     /// Which dimension of this box is largest?
+    #[inline]
     pub fn largest_dimension(&self) -> usize {
-        let extent = self.max - self.min;
-        extent
+        self.extent()
             .0
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .unwrap()
             .0
+    }
+    /// Returns the amount to shift this aabb such that it fits within [-1,1].
+    pub fn to_unit(&self) -> (Vector<N>, f32) {
+        let center = self.midpoint();
+        let scale = self.extent().0[self.largest_dimension()];
+        (-center, scale / 2.)
     }
 }
 
@@ -512,9 +521,44 @@ pub fn point_on_line(&p: &Vec3, &[l0, l1]: &[Vec3; 2], eps: f32) -> Option<f32> 
 /// An intersection of a ray with the surface of mesh.
 /// Contains the distance along the ray, and face index it intersected.
 #[derive(Debug, Clone, Copy)]
-struct Intersection {
-    face: usize,
-    t: f32,
+pub struct Intersection {
+    pub face: usize,
+    pub t: f32,
 }
 
 pub mod obj;
+
+/// Surfaces are objects which can be hit by rays.
+pub trait Surface {
+    fn intersect_ray(&self, ray: &Ray) -> Option<Intersection>;
+}
+
+/// A ray with an origin, direction, and a length
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ray {
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+
+pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32> {
+    let e0 = p1 - p0;
+    let e1 = p2 - p0;
+    let h = r.dir.cross(&e1);
+    let a = e0.dot(&h);
+    if -eps < a && a < eps {
+        return None;
+    }
+    let f = 1. / a;
+    let s = r.origin - p0;
+    let u = f * s.dot(&h);
+    if u < 0. || u > 1. {
+        return None;
+    }
+    let q = s.cross(&e0);
+    let v = f * r.dir.dot(&q);
+    if v < 0. || u + v > 1. {
+        return None;
+    }
+    let t = f * e1.dot(&q);
+    Some(t).filter(|t| *t > eps)
+}

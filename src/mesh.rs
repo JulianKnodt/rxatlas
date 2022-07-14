@@ -1,5 +1,5 @@
 use super::bvh::BVH;
-use super::{Vec2, Vec3, Vector};
+use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
@@ -224,6 +224,13 @@ impl Mesh {
         }
         out
     }
+    pub fn aabb(&self) -> AABB {
+        let mut aabb = AABB::empty();
+        for v in &self.verts {
+            aabb.add_point(v);
+        }
+        aabb
+    }
     pub fn colocated_verts_naive(
         &self,
         eps: f32,
@@ -361,5 +368,25 @@ impl Mesh {
         let pos = fp.bary_to_world(bary);
         let dir = -fp.normal();
         (pos, dir)
+    }
+}
+
+impl Surface for Mesh {
+    fn intersect_ray(&self, r: &Ray) -> Option<Intersection> {
+        let mut out = None;
+        for (i, f) in self.faces().enumerate() {
+            let p = f.pos(self);
+            let int = intersect_tri(&p.verts, r, 1e-5);
+            out = match (out, int) {
+                (prev, None) => prev,
+                (None, Some(t)) => Some(Intersection { face: i, t }),
+                (Some(prev), Some(t)) => Some(if prev.t <= t {
+                    prev
+                } else {
+                    Intersection { face: i, t }
+                }),
+            };
+        }
+        out
     }
 }
