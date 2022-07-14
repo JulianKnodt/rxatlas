@@ -160,6 +160,10 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
                     *dst = Vector::new([pf32(r), pf32(g), pf32(b)]);
                 }
             },
+            "map_kd" | "map_ka" | "map_ks" => {
+              let Some(f) = iter.next() else { panic!("Missing file from {l}"); };
+              todo!()
+            }
             "newmtl" => {
                 let old = std::mem::take(&mut curr_mtl);
                 let new_name = iter.next().expect("missing name");
