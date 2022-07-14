@@ -20,14 +20,23 @@ pub enum EdgeShareKind {
     Shared(usize, usize),
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
+pub struct MeshFace {
+    pub v: [usize; 3],
+    pub vn: Option<[usize; 3]>,
+    pub vt: Option<[usize; 3]>,
+    pub mat: Option<usize>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Mesh {
     edge_face: HashMap<Edge, EdgeShareKind>,
 
-    verts: Vec<Vec3>,
-    normals: Vec<Vec3>,
-    tex_coords: Vec<Vec2>,
-    face_indices: Vec<[usize; 3]>,
+    pub verts: Vec<Vec3>,
+    pub normals: Vec<Vec3>,
+    pub tex_coords: Vec<Vec2>,
+
+    faces: Vec<MeshFace>,
 }
 
 /// Represents one triangular face on a mesh.
@@ -107,8 +116,46 @@ impl Face<usize> {
             verts: self.verts.map(|vi| m.verts[vi]),
         }
     }
+    pub fn normals(&self, m: &Mesh) -> Face<Vec3> {
+        Face {
+            verts: self.verts.map(|vi| m.normals[vi]),
+        }
+    }
+    pub fn tex(&self, m: &Mesh) -> Face<Vec2> {
+        Face {
+            verts: self.verts.map(|vi| m.tex_coords[vi]),
+        }
+    }
     pub fn edges(&self) -> Face<Edge> {
         let [vi0, vi1, vi2] = self.verts;
+        Face {
+            verts: [
+                Edge::new(vi0, vi1),
+                Edge::new(vi1, vi2),
+                Edge::new(vi0, vi2),
+            ],
+        }
+    }
+}
+
+impl MeshFace {
+    pub fn pos(&self, m: &Mesh) -> Face<Vec3> {
+        Face {
+            verts: self.v.map(|vi| m.verts[vi]),
+        }
+    }
+    pub fn normals(&self, m: &Mesh) -> Option<Face<Vec3>> {
+        self.vn.map(|vn| Face {
+            verts: vn.map(|vi| m.normals[vi]),
+        })
+    }
+    pub fn tex(&self, m: &Mesh) -> Option<Face<Vec2>> {
+        self.vt.map(|vt| Face {
+            verts: vt.map(|vi| m.tex_coords[vi]),
+        })
+    }
+    pub fn edges(&self) -> Face<Edge> {
+        let [vi0, vi1, vi2] = self.v;
         Face {
             verts: [
                 Edge::new(vi0, vi1),
@@ -128,13 +175,21 @@ impl Mesh {
         self.normals.push(n);
         self.tex_coords.push(tex);
     }
-    pub fn add_face(&mut self, idxs: [usize; 3]) {
-        let fi = self.face_indices.len();
-        self.face_indices.push(idxs);
+    pub fn add_edges(&mut self, v: [usize; 3]) {
+        self.add_face(MeshFace {
+            v,
+            vn: None,
+            vt: None,
+            mat: None,
+        });
+    }
+    pub fn add_face(&mut self, f: MeshFace) {
+        let fi = self.faces.len();
+        self.faces.push(f);
         for i in 0..3 {
             let amt = self
                 .edge_face
-                .entry(Edge::new(idxs[i], idxs[(i + 1) % 3]))
+                .entry(Edge::new(f.v[i], f.v[(i + 1) % 3]))
                 .and_modify(|esk| match esk {
                     EdgeShareKind::Boundary(i) => {
                         assert_ne!(*i, fi);
@@ -148,13 +203,11 @@ impl Mesh {
         }
     }
     pub fn num_faces(&self) -> usize {
-        self.face_indices.len()
+        self.faces.len()
     }
     #[inline]
-    pub fn face(&self, i: usize) -> Face<usize> {
-        Face {
-            verts: self.face_indices[i],
-        }
+    pub fn face(&self, i: usize) -> MeshFace {
+        self.faces[i]
     }
     /// Finds all verts at the same location of all verts using a bvh
     pub fn colocated_verts_bvh(&self) -> impl Iterator<Item = usize> {
@@ -200,7 +253,7 @@ impl Mesh {
             .get(e)
             .map(|esk| matches!(esk, EdgeShareKind::Boundary(..)))
     }
-    pub fn faces(&self) -> impl Iterator<Item = Face<usize>> + '_ {
+    pub fn faces(&self) -> impl Iterator<Item = MeshFace> + '_ {
         (0..self.num_faces()).map(|i| self.face(i))
     }
     pub fn surface_area(&self) -> f32 {
@@ -244,14 +297,14 @@ impl Mesh {
     pub fn extrude(&mut self, amt: f32) {
         let mut cnts = vec![0; self.verts.len()];
         for f in self.faces() {
-            for vi in f.into_iter() {
+            for vi in f.v.into_iter() {
                 cnts[vi] += 1;
             }
         }
         let mut extrude_amt = vec![Vector::<3>::zero(); self.verts.len()];
         for f in self.faces() {
             let n = f.pos(&self).normal();
-            for vi in f.into_iter() {
+            for vi in f.v.into_iter() {
                 extrude_amt[vi] += n / (cnts[vi] as f32);
             }
         }

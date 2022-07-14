@@ -1,3 +1,4 @@
+#![feature(let_else)]
 #![allow(unused)]
 use std::array::from_fn;
 
@@ -9,6 +10,12 @@ pub mod rand;
 pub struct Vector<const N: usize, T = f32>([T; N]);
 pub type Vec2 = Vector<2>;
 pub type Vec3 = Vector<3>;
+impl<const N: usize, T> Vector<N, T> {
+    pub fn new(v: [T; N]) -> Self {
+        Self(v)
+    }
+}
+
 impl<const N: usize> Vector<N> {
     /// Creates a zeroed vector.
     pub fn zero() -> Self {
@@ -155,6 +162,11 @@ impl<const N: usize> std::ops::Neg for Vector<N> {
     type Output = Self;
     fn neg(self) -> Self {
         Self(from_fn(|i| -self.0[i]))
+    }
+}
+impl Default for Vec3 {
+    fn default() -> Self {
+        Vector([0.; 3])
     }
 }
 
@@ -497,11 +509,12 @@ pub fn point_on_line(&p: &Vec3, &[l0, l1]: &[Vec3; 2], eps: f32) -> Option<f32> 
     Some(t)
 }
 
-/// An intersection of a ray with the surface of mesh. Contains the 3D position of intersection,
-/// distance along the ray, and face index it intersected.
+/// An intersection of a ray with the surface of mesh.
+/// Contains the distance along the ray, and face index it intersected.
 #[derive(Debug, Clone, Copy)]
 struct Intersection {
-    pos: Vec3,
     face: usize,
     t: f32,
 }
+
+pub mod obj;

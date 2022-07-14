@@ -15,6 +15,5 @@ struct Args {
 }
 
 fn main() {
-    let _args = Args::parse();
-    todo!();
+    let args = Args::parse();
 }
