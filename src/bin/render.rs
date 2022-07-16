@@ -20,6 +20,32 @@ struct Args {
 
     #[clap(long, value_parser, default_value_t = 512)]
     res: u32,
+
+    #[clap(long, value_parser, default_value = "normal")]
+    kind: RenderKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderKind {
+    Silhouette,
+    Barycentric,
+    Normal,
+    Diffuse,
+}
+
+impl core::str::FromStr for RenderKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v = match s.to_lowercase().as_str() {
+            "silhouette" => RenderKind::Silhouette,
+            "barycentric" => RenderKind::Barycentric,
+            "normal" => RenderKind::Normal,
+            "diffuse" => RenderKind::Diffuse,
+            x => return Err(format!("Unknown render kind {x}")),
+        };
+        Ok(v)
+    }
 }
 
 pub fn main() {
@@ -36,7 +62,9 @@ pub fn main() {
         *v += shift;
         *v /= scale;
     }
-    //println!("{:?}", mesh.aabb());
+
+    mesh.apply_average_face_normals();
+    let bvh = mesh.bvh();
 
     let mut out = ImageBuffer::new(args.res, args.res);
     out.save("render.png").expect("Failed to save");
@@ -56,8 +84,24 @@ pub fn main() {
                 origin: eye + up * v + right * u,
                 dir: fwd,
             };
-            let Some(hit) = mesh.intersect_ray(&r) else { continue };
-            out.put_pixel(x, args.res - y, Rgba([255u8; 4]));
+            let Some(hit) = bvh.intersect_ray(&r) else { continue };
+            let face = mesh.face(hit.face);
+            let pos = face.pos(&mesh);
+            let bary = pos.barycentric_coord(r.at(hit.t));
+            let rgb = match args.kind {
+                RenderKind::Silhouette => Vector::one(),
+                RenderKind::Normal => {
+                    if let Some(n) = face.normals(&mesh) {
+                        n.bary_to_world(bary).normalize()
+                    } else {
+                        pos.normal().normalize()
+                    }
+                }
+                RenderKind::Barycentric => bary,
+                RenderKind::Diffuse => todo!(),
+            };
+            let [r, g, b] = (rgb * 255.).abs().0.map(|v| v as u8);
+            out.put_pixel(x, args.res - y, Rgba([r, g, b, 255]));
         }
     }
     out.save("render.png").expect("Failed to save");

@@ -1,4 +1,5 @@
 use super::bvh::BVH;
+use super::triangle::{Triangle, Triangle2, Triangle3};
 use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB};
 use std::collections::{HashMap, HashSet};
 
@@ -31,12 +32,18 @@ pub struct MeshFace {
 #[derive(Debug, Default, Clone)]
 pub struct Mesh {
     edge_face: HashMap<Edge, EdgeShareKind>,
+    tex_edge_face: HashMap<Edge, EdgeShareKind>,
 
     pub verts: Vec<Vec3>,
     pub normals: Vec<Vec3>,
     pub tex_coords: Vec<Vec2>,
 
-    faces: Vec<MeshFace>,
+    faces: Vec<[usize; 3]>,
+    face_normals: Vec<[usize; 3]>,
+    face_textures: Vec<[usize; 3]>,
+
+    // TODO this is one per face, but it can be much more compressed (ranges)
+    mats: Vec<usize>,
 }
 
 /// Represents one triangular face on a mesh.
@@ -45,62 +52,12 @@ pub struct Face<T> {
     pub verts: [T; 3],
 }
 
-impl<T> Face<T> {
-    pub fn iter(&self) -> impl Iterator<Item = &'_ T> + '_ {
-        self.verts.iter()
-    }
-    pub fn into_iter(self) -> impl Iterator<Item = T> {
-        self.verts.into_iter()
-    }
-}
-
-impl Face<Vec3> {
-    pub fn area(&self) -> f32 {
-        super::triangle3d_area(self.verts)
-    }
-    pub fn centroid(&self) -> Vec3 {
-        let [v0, v1, v2] = self.verts;
-        (v0 + v1 + v2) / 3.0
-    }
-    /// Average of edge midpoints weighted by edge length.
-    pub fn center(&self) -> Vec3 {
-        let [v0, v1, v2] = self.verts;
-        let l0 = (v1 - v0).length();
-        let l1 = (v2 - v1).length();
-        let l2 = (v0 - v2).length();
-
-        let total = l0 + l1 + l2;
-        let p0 = (v1 + v0) * l0 / total;
-        let p1 = (v2 + v1) * l1 / total;
-        let p2 = (v0 + v2) * l2 / total;
-        p0 + p1 + p2
-    }
-    pub fn barycentric_coord(&self, p: Vec3) -> Vec3 {
-        let [v0, v1, v2] = self.verts;
-        let a0 = super::triangle3d_area([v0, p, v1]);
-        let a1 = super::triangle3d_area([v1, p, v2]);
-        let a2 = super::triangle3d_area([v2, p, v0]);
-        let total_area = a0 + a1 + a2;
-        Vector([a0, a1, a2]) / total_area
-    }
-    /// Gets the global position of a barycentric coordinate for this triangle
-    pub fn bary_to_world(&self, bary: Vec3) -> Vec3 {
-        let [v0, v1, v2] = self.verts;
-        let Vector([u, v, w]) = bary;
-        v0 * u + v1 * v + v2 * w
-    }
-    pub fn normal(&self) -> Vec3 {
-        let [v0, v1, v2] = self.verts;
-        (v1 - v0).cross(&(v2 - v0)).normalize()
-    }
-}
-
 impl Face<Edge> {
     /// If these faces share an edge, returns the shared edge.
     /// This assumes they share at most one edge.
     pub fn shared_edge(&self, o: &Self) -> Option<Edge> {
-        for s_e in self.iter() {
-            for o_e in o.iter() {
+        for s_e in self.verts.iter() {
+            for o_e in o.verts.iter() {
                 if s_e == o_e {
                     return Some(*s_e);
                 }
@@ -110,49 +67,17 @@ impl Face<Edge> {
     }
 }
 
-impl Face<usize> {
-    pub fn pos(&self, m: &Mesh) -> Face<Vec3> {
-        Face {
-            verts: self.verts.map(|vi| m.verts[vi]),
-        }
-    }
-    pub fn normals(&self, m: &Mesh) -> Face<Vec3> {
-        Face {
-            verts: self.verts.map(|vi| m.normals[vi]),
-        }
-    }
-    pub fn tex(&self, m: &Mesh) -> Face<Vec2> {
-        Face {
-            verts: self.verts.map(|vi| m.tex_coords[vi]),
-        }
-    }
-    pub fn edges(&self) -> Face<Edge> {
-        let [vi0, vi1, vi2] = self.verts;
-        Face {
-            verts: [
-                Edge::new(vi0, vi1),
-                Edge::new(vi1, vi2),
-                Edge::new(vi0, vi2),
-            ],
-        }
-    }
-}
-
 impl MeshFace {
-    pub fn pos(&self, m: &Mesh) -> Face<Vec3> {
-        Face {
-            verts: self.v.map(|vi| m.verts[vi]),
-        }
+    pub fn pos(&self, m: &Mesh) -> Triangle3 {
+        Triangle::new(self.v.map(|vi| m.verts[vi]), ())
     }
-    pub fn normals(&self, m: &Mesh) -> Option<Face<Vec3>> {
-        self.vn.map(|vn| Face {
-            verts: vn.map(|vi| m.normals[vi]),
-        })
+    pub fn normals(&self, m: &Mesh) -> Option<Triangle3> {
+        self.vn
+            .map(|vn| Triangle::new(vn.map(|vi| m.normals[vi]), ()))
     }
-    pub fn tex(&self, m: &Mesh) -> Option<Face<Vec2>> {
-        self.vt.map(|vt| Face {
-            verts: vt.map(|vi| m.tex_coords[vi]),
-        })
+    pub fn tex(&self, m: &Mesh) -> Option<Triangle2> {
+        self.vt
+            .map(|vt| Triangle::new(vt.map(|vi| m.tex_coords[vi]), ()))
     }
     pub fn edges(&self) -> Face<Edge> {
         let [vi0, vi1, vi2] = self.v;
@@ -183,13 +108,29 @@ impl Mesh {
             mat: None,
         });
     }
+
+    /// Adds a mesh face into this mesh
+    /// panicking if it has a texture and some vertices do but others do not.
     pub fn add_face(&mut self, f: MeshFace) {
         let fi = self.faces.len();
-        self.faces.push(f);
+        let MeshFace { v, vt, vn, mat } = f;
+        self.faces.push(v);
+        if let Some(vt) = vt {
+            self.face_textures.push(vt);
+        }
+        if let Some(vn) = vn {
+            self.face_normals.push(vn);
+        }
+        if let Some(mat) = mat {
+            self.mats.push(mat);
+        }
+        assert!(self.faces.len() == self.face_textures.len() || self.face_textures.is_empty());
+        assert!(self.faces.len() == self.face_normals.len() || self.face_normals.is_empty());
+        assert!(self.faces.len() == self.mats.len() || self.mats.is_empty());
+
         for i in 0..3 {
-            let amt = self
-                .edge_face
-                .entry(Edge::new(f.v[i], f.v[(i + 1) % 3]))
+            self.edge_face
+                .entry(Edge::new(v[i], v[(i + 1) % 3]))
                 .and_modify(|esk| match esk {
                     EdgeShareKind::Boundary(i) => {
                         assert_ne!(*i, fi);
@@ -200,20 +141,65 @@ impl Mesh {
                     }
                 })
                 .or_insert(EdgeShareKind::Boundary(fi));
+
+            // Also add texture edges if they exist.
+            if let Some(vt) = vt {
+                self.tex_edge_face
+                    .entry(Edge::new(vt[i], vt[(i + 1) % 3]))
+                    .and_modify(|esk| match esk {
+                        EdgeShareKind::Boundary(i) => {
+                            assert_ne!(*i, fi);
+                            *esk = EdgeShareKind::Shared(*i, fi);
+                        }
+                        EdgeShareKind::Shared(..) => {
+                            panic!("Edge shared by more than 2 triangles in 2D");
+                        }
+                    })
+                    .or_insert(EdgeShareKind::Boundary(fi));
+            }
         }
     }
+
+    /// Sets each vertex to the average of each of its face normals.
+    pub fn apply_average_face_normals(&mut self) {
+        self.normals.clear();
+        self.normals.resize(self.verts.len(), Vector::new([0.; 3]));
+        self.face_normals.clone_from(&self.faces);
+
+        for i in 0..self.num_faces() {
+            let vis = self.faces[i];
+            let t = Triangle::new(vis.map(|vi| self.verts[vi]), ());
+            let n = t.normal();
+            for vi in vis {
+                self.normals[vi] += n;
+            }
+        }
+        for n in self.normals.iter_mut() {
+            *n = n.normalize();
+        }
+    }
+
+    #[inline]
     pub fn num_faces(&self) -> usize {
         self.faces.len()
     }
+
     #[inline]
     pub fn face(&self, i: usize) -> MeshFace {
-        self.faces[i]
+        MeshFace {
+            v: self.faces[i],
+            vn: self.face_normals.get(i).copied(),
+            vt: self.face_textures.get(i).copied(),
+            mat: self.mats.get(i).copied(),
+        }
     }
+
     /// Finds all verts at the same location of all verts using a bvh
     pub fn colocated_verts_bvh(&self) -> impl Iterator<Item = usize> {
         todo!();
         [].into_iter()
     }
+
     /// Finds all verts at the same location by bucketing them into eps range.
     pub fn colocated_verts_hash(&self, eps: f32) -> HashMap<[u32; 3], Vec<usize>> {
         let mut out: HashMap<[u32; 3], Vec<usize>> = HashMap::new();
@@ -231,6 +217,7 @@ impl Mesh {
         }
         aabb
     }
+
     pub fn colocated_verts_naive(
         &self,
         eps: f32,
@@ -247,6 +234,7 @@ impl Mesh {
             (i, iter)
         })
     }
+
     /// Returns edges which are boundaries of cuts
     pub fn boundary_edges(&self) -> impl Iterator<Item = Edge> + '_ {
         self.edge_face
@@ -255,6 +243,15 @@ impl Mesh {
             .map(|(k, v)| k)
             .copied()
     }
+
+    pub fn tex_boundary_edges(&self) -> impl Iterator<Item = Edge> + '_ {
+        self.tex_edge_face
+            .iter()
+            .filter(|&(_, &v)| matches!(v, EdgeShareKind::Boundary(..)))
+            .map(|(k, v)| k)
+            .copied()
+    }
+
     pub fn is_boundary_edge(&self, e: &Edge) -> Option<bool> {
         self.edge_face
             .get(e)
@@ -265,13 +262,13 @@ impl Mesh {
     }
     pub fn surface_area(&self) -> f32 {
         (0..self.num_faces())
-            .map(|i| self.face(i).pos(&self).area())
+            .map(|i| self.face(i).pos(self).area())
             .sum()
     }
     /// Surface area, but counts flipped triangles as positive surface area as well.
     pub fn parametric_surface_area(&self) -> f32 {
         (0..self.num_faces())
-            .map(|i| self.face(i).pos(&self).area().abs())
+            .map(|i| self.face(i).pos(self).area().abs())
             .sum()
     }
     pub fn centroid(&self) -> Vec3 {
@@ -280,6 +277,7 @@ impl Mesh {
     pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         self.face(i)
             .edges()
+            .verts
             .into_iter()
             .filter_map(move |e| match self.edge_face[&e] {
                 EdgeShareKind::Boundary(o) => {
@@ -296,7 +294,7 @@ impl Mesh {
     }
     /// Returns a map of face index to face's connected component.
     pub fn face_components(&self) -> FaceComponents {
-        FaceComponents::new(&self)
+        FaceComponents::new(self)
     }
 
     /// Extrudes this mesh in place by pushing each vertex in the direction of the average of
@@ -310,7 +308,7 @@ impl Mesh {
         }
         let mut extrude_amt = vec![Vector::<3>::zero(); self.verts.len()];
         for f in self.faces() {
-            let n = f.pos(&self).normal();
+            let n = f.pos(self).normal();
             for vi in f.v.into_iter() {
                 extrude_amt[vi] += n / (cnts[vi] as f32);
             }
@@ -364,7 +362,7 @@ impl FaceComponents {
 impl Mesh {
     fn trace_ray(&self, face_idx: usize, bary: Vec3, smooth_normal: Vec3) -> (Vec3, Vec3) {
         let f = self.face(face_idx);
-        let fp = f.pos(&self);
+        let fp = f.pos(self);
         let pos = fp.bary_to_world(bary);
         let dir = -fp.normal();
         (pos, dir)

@@ -5,9 +5,10 @@ use std::array::from_fn;
 mod bvh;
 pub mod point_vis;
 pub mod rand;
+pub mod triangle;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Vector<const N: usize, T = f32>([T; N]);
+pub struct Vector<const N: usize, T = f32>(pub [T; N]);
 pub type Vec2 = Vector<2>;
 pub type Vec3 = Vector<3>;
 impl<const N: usize, T> Vector<N, T> {
@@ -18,9 +19,16 @@ impl<const N: usize, T> Vector<N, T> {
 
 impl<const N: usize> Vector<N> {
     /// Creates a zeroed vector.
+    #[inline]
     pub fn zero() -> Self {
-        Self([0.0; N])
+        Self([0.; N])
     }
+    /// Creates a vector with only ones
+    #[inline]
+    pub fn one() -> Self {
+        Self([1.; N])
+    }
+    /// Computes the dot product of two vectors.
     pub fn dot(&self, o: &Self) -> f32 {
         self.0
             .iter()
@@ -48,6 +56,9 @@ impl<const N: usize> Vector<N> {
     }
     pub fn is_finite(&self) -> bool {
         self.0.iter().copied().all(f32::is_finite)
+    }
+    pub fn abs(&self) -> Self {
+        Self(self.0.map(|v| v.abs()))
     }
     pub fn cast<T>(&self) -> [T; N]
     where
@@ -526,18 +537,26 @@ pub struct Intersection {
     pub t: f32,
 }
 
-pub mod obj;
-
 /// Surfaces are objects which can be hit by rays.
 pub trait Surface {
     fn intersect_ray(&self, ray: &Ray) -> Option<Intersection>;
 }
+
+pub mod obj;
 
 /// A ray with an origin, direction, and a length
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ray {
     pub origin: Vec3,
     pub dir: Vec3,
+}
+
+impl Ray {
+    /// Returns the position `t` distance along this ray.
+    #[inline]
+    pub fn at(&self, t: f32) -> Vec3 {
+        self.origin + self.dir * t
+    }
 }
 
 pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32> {

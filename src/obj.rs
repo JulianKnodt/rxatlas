@@ -1,4 +1,6 @@
 use super::mesh::{Mesh, MeshFace};
+use image::{open as image_open, DynamicImage};
+
 use super::{Vec2, Vec3, Vector};
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,10 +32,17 @@ pub struct MTL {
     ka: Vec3,
     kd: Vec3,
     ks: Vec3,
+
+    /// diffuse map
+    map_kd: Option<DynamicImage>,
+    /// specular map
+    map_ks: Option<DynamicImage>,
+    /// specular map
+    map_ka: Option<DynamicImage>,
 }
 
 impl MTL {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self == &Self::default()
     }
 }
@@ -74,11 +83,11 @@ pub fn parse(p: &str) -> io::Result<Obj> {
 
     for l in buf_read.lines() {
         let l = l?;
-        let mut iter = l.trim().split_whitespace();
+        let mut iter = l.split_whitespace();
         let Some(kind) = iter.next() else { continue };
         match kind {
             // comment
-            ht if ht.starts_with("#") => continue,
+            ht if ht.starts_with('#') => continue,
             "v" => match [iter.next(), iter.next(), iter.next()] {
                 [None, _, _] | [_, None, _] | [_, _, None] => panic!("Unsupported `v` format {l}"),
                 [Some(a), Some(b), Some(c)] => {
@@ -143,7 +152,7 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
     let mut out = vec![];
     for l in buf_read.lines() {
         let l = l?;
-        let mut iter = l.trim().split_whitespace();
+        let mut iter = l.split_whitespace();
         let Some(kind) = iter.next() else { continue };
         let kind = kind.to_lowercase();
         match kind.as_str() {
@@ -151,18 +160,24 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
             "kd" | "ks" | "ka" => match [iter.next(), iter.next(), iter.next()] {
                 [None, _, _] | [_, None, _] | [_, _, None] => panic!("Unsupported {kind} {l}"),
                 [Some(r), Some(g), Some(b)] => {
-                    let dst = match kind.as_str() {
+                    *match kind.as_str() {
                         "kd" => &mut curr_mtl.kd,
                         "ks" => &mut curr_mtl.ks,
                         "ka" => &mut curr_mtl.ka,
                         _ => unreachable!(),
-                    };
-                    *dst = Vector::new([pf32(r), pf32(g), pf32(b)]);
+                    } = Vector::new([pf32(r), pf32(g), pf32(b)]);
                 }
             },
             "map_kd" | "map_ka" | "map_ks" => {
-              let Some(f) = iter.next() else { panic!("Missing file from {l}"); };
-              todo!()
+                let Some(f) = iter.next() else { panic!("Missing file from {l}"); };
+                // TODO should be relative to mtl file?
+                let img = image_open(f).expect("Failed to load mtl file");
+                *match kind.as_str() {
+                    "map_kd" => &mut curr_mtl.map_kd,
+                    "map_ks" => &mut curr_mtl.map_ks,
+                    "map_ka" => &mut curr_mtl.map_ka,
+                    _ => unreachable!(),
+                } = Some(img);
             }
             "newmtl" => {
                 let old = std::mem::take(&mut curr_mtl);

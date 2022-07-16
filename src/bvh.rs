@@ -2,7 +2,7 @@
 // https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
 
 use super::mesh::Mesh;
-use super::{intersect_tri, Intersection, Ray, Vec3, Vector, AABB};
+use super::{intersect_tri, Intersection, Ray, Surface, Vec3, Vector, AABB};
 
 pub fn tri_aabb([p0, p1, p2]: &[Vec3; 3]) -> AABB {
     let mut out = AABB::new(*p0, *p1);
@@ -30,7 +30,7 @@ enum NodeKind {
   Leaf {
     num_prims: core::num::NonZeroUsize,
     first_prim: usize,
-  }
+  },
   Internal {
     left_child: usize,
   },
@@ -51,24 +51,29 @@ struct BVHNode {
 impl BVHNode {
     /// Returns the right child of this bvh node, which is always left child + 1
     fn right_child(&self) -> usize {
+        assert!(!self.is_leaf());
         self.left_child() + 1
     }
+    #[inline]
     fn is_leaf(&self) -> bool {
         self.num_prims > 0
     }
     /// Sets the left child of this node, and returns (first_prim, number of primitives) it had before
     fn set_left_child(&mut self, left_child: usize) -> (usize, usize) {
+        assert!(self.is_leaf());
         (
             std::mem::replace(&mut self.left_child_or_first_prim, left_child),
             std::mem::replace(&mut self.num_prims, 0),
         )
     }
+    #[inline]
     fn left_child(&self) -> usize {
-        assert_eq!(self.num_prims, 0);
+        assert!(!self.is_leaf());
         self.left_child_or_first_prim
     }
+    #[inline]
     fn first_prim(&self) -> usize {
-        assert!(self.num_prims > 0);
+        assert!(self.is_leaf());
         self.left_child_or_first_prim
     }
     fn set_prims(&mut self, first_prim: usize, num_prims: usize) {
@@ -110,6 +115,7 @@ impl<'a> BVH<'a> {
         let size = 2 * mesh.num_faces() + 1;
         let nodes = vec![BVHNode::new(); size];
         let tris = (0..size).collect::<Vec<_>>();
+
         let mut s = Self {
             mesh,
             size,
@@ -119,24 +125,30 @@ impl<'a> BVH<'a> {
             tris,
             centroids,
         };
+
         let root_node = &mut s.nodes[0];
-        root_node.num_prims = size;
+        root_node.num_prims = mesh.num_faces();
+
         s.update_node_bounds(0);
         s.subdivide(0);
+
         s
     }
+
     /// Updates a node's bounds to contain all of the triangles it encloses
     fn update_node_bounds(&mut self, idx: usize) {
         let node = &mut self.nodes[idx];
         node.aabb.reset();
-        // TODO can add a layer of indirection here
+
         for &tri_idx in &self.tris[node.first_prim()..node.first_prim() + node.num_prims] {
             let [p0, p1, p2] = self.mesh.face(tri_idx).pos(self.mesh).verts;
             node.aabb.add_point(&p0);
             node.aabb.add_point(&p1);
             node.aabb.add_point(&p2);
         }
+        node.aabb.expand_by(1e-3);
     }
+
     /// Subdivide this BVH into separate nodes for some number of the triangles it encloses.
     fn subdivide(&mut self, idx: usize) {
         let node = &mut self.nodes[idx];
@@ -183,10 +195,12 @@ impl<'a> BVH<'a> {
         self.subdivide(right_child_idx);
     }
 
+    #[inline]
     pub fn intersects(&self, ray: &Ray) -> Option<Intersection> {
         self.intersects_node(ray, self.root_node_idx, None)
     }
 
+    /// Recursive algorithm to compute intersection with BVH nodes
     fn intersects_node(
         &self,
         ray: &Ray,
@@ -212,12 +226,12 @@ impl<'a> BVH<'a> {
             let left = self.intersects_node(ray, node.left_child(), curr_t);
             let curr_nearest = [left, curr_t]
                 .into_iter()
-                .filter_map(|t| t)
+                .flatten()
                 .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
             let right = self.intersects_node(ray, node.right_child(), curr_nearest);
             [left, right]
                 .into_iter()
-                .filter_map(|t| t)
+                .flatten()
                 .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap())
         }
     }
@@ -243,6 +257,13 @@ impl<'a> BVH<'a> {
             self.intersects_aabb_internal(aabb, out, node.left_child());
             self.intersects_aabb_internal(aabb, out, node.right_child());
         }
+    }
+}
+
+impl Surface for BVH<'_> {
+    #[inline]
+    fn intersect_ray(&self, ray: &Ray) -> Option<Intersection> {
+        self.intersects(ray)
     }
 }
 
