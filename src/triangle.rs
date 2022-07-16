@@ -50,6 +50,8 @@ impl<T, const N: usize> Triangle<N, T> {
 }
 
 impl<T> Triangle3<T> {
+    /// Returns the normal of this triangle with respect to each of the edges.
+    #[inline]
     pub fn normal(&self) -> Vec3 {
         let &[v0, v1, v2] = &self.verts;
         (v1 - v0).cross(&(v2 - v0))

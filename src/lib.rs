@@ -78,6 +78,14 @@ impl Vec2 {
         self.0[1]
     }
     #[inline]
+    pub fn u(&self) -> f32 {
+        self.0[0]
+    }
+    #[inline]
+    pub fn v(&self) -> f32 {
+        self.0[1]
+    }
+    #[inline]
     pub fn cross(&self, other: &Self) -> f32 {
         self.x() * other.y() - self.y() * other.x()
     }
@@ -85,6 +93,10 @@ impl Vec2 {
     #[inline]
     pub fn ortho(&self) -> Vec2 {
         Vector([-self.y(), self.x()])
+    }
+    #[inline]
+    pub fn homogeneous(&self) -> Vec3 {
+        Vector::new([self.x(), self.y(), 1.])
     }
 }
 

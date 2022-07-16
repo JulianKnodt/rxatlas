@@ -1,7 +1,7 @@
 #![feature(let_else)]
 use clap::Parser;
-use image::{ImageBuffer, Rgba};
-use rsatlas::{obj, Ray, Surface, Vector};
+use image::{self, GenericImageView, ImageBuffer, Rgba};
+use rxatlas::{obj, Ray, Surface, Vector};
 
 /// Renders a mesh as example
 #[derive(Parser, Debug)]
@@ -23,6 +23,9 @@ struct Args {
 
     #[clap(long, value_parser, default_value = "normal")]
     kind: RenderKind,
+
+    #[clap(long, value_parser)]
+    texture: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +33,7 @@ pub enum RenderKind {
     Silhouette,
     Barycentric,
     Normal,
+    UV,
     Diffuse,
 }
 
@@ -41,7 +45,9 @@ impl core::str::FromStr for RenderKind {
             "silhouette" => RenderKind::Silhouette,
             "barycentric" => RenderKind::Barycentric,
             "normal" => RenderKind::Normal,
+            "uv" => RenderKind::UV,
             "diffuse" => RenderKind::Diffuse,
+
             x => return Err(format!("Unknown render kind {x}")),
         };
         Ok(v)
@@ -56,6 +62,14 @@ pub fn main() {
         .objects
         .pop()
         .unwrap();
+    let texture = if RenderKind::Diffuse == args.kind {
+        Some(
+            image::open(args.texture.expect("Missing texture for diffuse"))
+                .expect("Failed to open texture"),
+        )
+    } else {
+        None
+    };
     let mut mesh = mesh.to_mesh();
     let (shift, scale) = mesh.aabb().to_unit();
     for v in mesh.verts.iter_mut() {
@@ -98,7 +112,20 @@ pub fn main() {
                     }
                 }
                 RenderKind::Barycentric => bary,
-                RenderKind::Diffuse => todo!(),
+                RenderKind::UV => {
+                    let uv = face.tex(&mesh).expect("No UV coordinates for this mesh");
+                    uv.bary_to_world(bary).homogeneous()
+                }
+                RenderKind::Diffuse => {
+                    let tex = texture.as_ref().unwrap();
+                    let uv = face.tex(&mesh).expect("No UV coordinates for this mesh");
+                    let uv = uv.bary_to_world(bary);
+                    // nearest neighbor
+                    let u = tex.width() as f32 * uv.u();
+                    let v = tex.height() as f32 * (1. - uv.v());
+                    out.put_pixel(x, args.res - y, tex.get_pixel(u as u32, v as u32));
+                    continue;
+                }
             };
             let [r, g, b] = (rgb * 255.).abs().0.map(|v| v as u8);
             out.put_pixel(x, args.res - y, Rgba([r, g, b, 255]));
