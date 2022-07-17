@@ -54,6 +54,9 @@ impl<const N: usize> Vector<N> {
     pub fn max(&self, o: &Self) -> Self {
         Self(from_fn(|i| self.0[i].max(o.0[i])))
     }
+    pub fn clamp(&self, min: f32, max: f32) -> Self {
+        Self(from_fn(|i| self.0[i].min(max).max(min)))
+    }
     pub fn is_finite(&self) -> bool {
         self.0.iter().copied().all(f32::is_finite)
     }

@@ -91,7 +91,7 @@ pub fn main() {
     for x in 0..args.res {
         let i = (x as i32) - hw;
         let u = (i as f32) / (hw as f32);
-        for y in 0..args.res {
+        for y in 1..=args.res {
             let j = (y as i32) - hw;
             let v = (j as f32) / (hw as f32);
             let r = Ray {
@@ -119,11 +119,14 @@ pub fn main() {
                 RenderKind::Diffuse => {
                     let tex = texture.as_ref().unwrap();
                     let uv = face.tex(&mesh).expect("No UV coordinates for this mesh");
-                    let uv = uv.bary_to_world(bary);
+                    let uv = uv.bary_to_world(bary).clamp(0., 1.);
                     // nearest neighbor
                     let u = tex.width() as f32 * uv.u();
                     let v = tex.height() as f32 * (1. - uv.v());
-                    out.put_pixel(x, args.res - y, tex.get_pixel(u as u32, v as u32));
+                    let u = (u as u32).min(tex.width());
+                    let v = (v as u32).min(tex.height());
+                    let color = tex.get_pixel(u as u32, v as u32);
+                    out.put_pixel(x, args.res - y, color);
                     continue;
                 }
             };
