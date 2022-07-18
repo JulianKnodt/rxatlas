@@ -298,28 +298,70 @@ impl Mesh {
     }
 
     /// Extrudes this mesh in place by pushing each vertex in the direction of the average of
-    /// each of its normals.
+    /// each of its assigned vertex normals.
     pub fn extrude(&mut self, amt: f32) {
-        let mut cnts = vec![0; self.verts.len()];
-        for f in self.faces() {
-            for vi in f.v.into_iter() {
-                cnts[vi] += 1;
-            }
-        }
-        let mut extrude_amt = vec![Vector::<3>::zero(); self.verts.len()];
-        for f in self.faces() {
-            let n = f.pos(self).normal();
-            for vi in f.v.into_iter() {
-                extrude_amt[vi] += n / (cnts[vi] as f32);
-            }
-        }
-        for (ex_amt, v) in extrude_amt.into_iter().zip(self.verts.iter_mut()) {
-            *v += ex_amt.normalize();
+        assert_eq!(
+            self.verts.len(),
+            self.normals.len(),
+            "Missing normals to extrude by"
+        );
+        for (v, vn) in self.verts.iter_mut().zip(&self.normals) {
+            *v += *vn * amt;
         }
     }
     pub fn bvh(&self) -> BVH<'_> {
         BVH::new(self)
     }
+    /// Iterator over texture locations, correspoding to a face, and barycentric
+    /// coordinate.
+    pub fn texel_coordinates(
+        &self,
+        w: u32,
+        h: u32,
+    ) -> Option<impl Iterator<Item = ([u32; 2], usize, Vec3)> + '_> {
+        if self.tex_coords.is_empty() {
+            return None;
+        }
+        let v = Vector::new([w as f32, h as f32]);
+        let iter = self.faces().flat_map(move |f| {
+            let tex = f.tex(&self).unwrap();
+            let aabb = (tex.aabb() * v).to_u32();
+            // Here, for each 1x1 pixel in the texture's aabb,
+            // check if it intersects the triangle.
+            // If it does, then output it.
+            todo!();
+            []
+        });
+        Some(iter)
+    }
+    /// Returns the assignment of each location in a texture to a face.
+    /// If there are no texture coordinates for a mesh, returns an empty vec.
+    pub fn tex_faces(&self, w: u32, h: u32) -> Vec<Vec<u32>> {
+        if self.tex_coords.is_empty() {
+            return vec![];
+        }
+        let mut out = vec![vec![u32::MAX; w as usize]; h as usize];
+        for f in self.faces() {
+            let t = f.tex(&self).unwrap();
+            // simple approach, just scan through bounding box and see if it's inside the triangle
+            let aabb = t.aabb();
+        }
+        out
+    }
+    /*
+    // TODO before implementing this need to have some way to represent adjacencies.
+    pub fn laplacian_weights(&self, from: usize, to: usize) -> f32 {
+      if from == to {
+        todo!();
+      } else {
+        if self.edge_face.contains_key(&Edge::new(from, to)) {
+          1.
+        } else {
+          0.
+        }
+      }
+    }
+    */
 }
 
 #[derive(Debug)]

@@ -1,6 +1,8 @@
 #![feature(let_else)]
 #![allow(unused)]
 use std::array::from_fn;
+use std::cmp::Ordering;
+use std::ops::{Add, Div, Mul, Sub};
 
 mod bvh;
 pub mod point_vis;
@@ -9,8 +11,8 @@ pub mod triangle;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Vector<const N: usize, T = f32>(pub [T; N]);
-pub type Vec2 = Vector<2>;
-pub type Vec3 = Vector<3>;
+pub type Vec2<T = f32> = Vector<2, T>;
+pub type Vec3<T = f32> = Vector<3, T>;
 impl<const N: usize, T> Vector<N, T> {
     pub fn new(v: [T; N]) -> Self {
         Self(v)
@@ -48,20 +50,24 @@ impl<const N: usize> Vector<N> {
     pub fn approx_equals(&self, o: &Self, eps: f32) -> bool {
         (*self - *o).length() < eps
     }
-    pub fn min(&self, o: &Self) -> Self {
-        Self(from_fn(|i| self.0[i].min(o.0[i])))
-    }
-    pub fn max(&self, o: &Self) -> Self {
-        Self(from_fn(|i| self.0[i].max(o.0[i])))
-    }
     pub fn clamp(&self, min: f32, max: f32) -> Self {
         Self(from_fn(|i| self.0[i].min(max).max(min)))
     }
+    #[inline]
     pub fn is_finite(&self) -> bool {
         self.0.iter().copied().all(f32::is_finite)
     }
+    #[inline]
     pub fn abs(&self) -> Self {
         Self(self.0.map(|v| v.abs()))
+    }
+    #[inline]
+    pub fn floor(&self) -> Self {
+        Self(self.0.map(f32::floor))
+    }
+    #[inline]
+    pub fn ceil(&self) -> Self {
+        Self(self.0.map(f32::ceil))
     }
     pub fn cast<T>(&self) -> [T; N]
     where
@@ -71,23 +77,40 @@ impl<const N: usize> Vector<N> {
     }
 }
 
+impl<const N: usize, T: PartialOrd + Copy> Vector<N, T> {
+    pub fn min(&self, o: &Self) -> Self {
+        Self(from_fn(|i| match self.0[i].partial_cmp(&o.0[i]) {
+            None | Some(Ordering::Less) | Some(Ordering::Equal) => self.0[0],
+            Some(Ordering::Greater) => o.0[0],
+        }))
+    }
+    pub fn max(&self, o: &Self) -> Self {
+        Self(from_fn(|i| match self.0[i].partial_cmp(&o.0[i]) {
+            None | Some(Ordering::Greater) | Some(Ordering::Equal) => self.0[0],
+            Some(Ordering::Less) => o.0[0],
+        }))
+    }
+}
+
+impl<T: Copy> Vec2<T> {
+    #[inline]
+    pub fn x(&self) -> T {
+        self.0[0]
+    }
+    #[inline]
+    pub fn y(&self) -> T {
+        self.0[1]
+    }
+    #[inline]
+    pub fn u(&self) -> T {
+        self.0[0]
+    }
+    #[inline]
+    pub fn v(&self) -> T {
+        self.0[1]
+    }
+}
 impl Vec2 {
-    #[inline]
-    pub fn x(&self) -> f32 {
-        self.0[0]
-    }
-    #[inline]
-    pub fn y(&self) -> f32 {
-        self.0[1]
-    }
-    #[inline]
-    pub fn u(&self) -> f32 {
-        self.0[0]
-    }
-    #[inline]
-    pub fn v(&self) -> f32 {
-        self.0[1]
-    }
     #[inline]
     pub fn cross(&self, other: &Self) -> f32 {
         self.x() * other.y() - self.y() * other.x()
@@ -162,26 +185,27 @@ pub fn lines_intersect([a0, a1]: [Vec2; 2], [b0, b1]: [Vec2; 2], eps: f32) -> bo
 }
 
 macro_rules! impl_ops {
-  ($op: ty, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
+  ($op: ty, $gen_ty: ident, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
     impl<const N: usize> $op for Vector<N> {
       type Output = Self;
       fn $fn_name(self, o: Self) -> Self {
         Self(from_fn(|i| self.0[i] $op_token o.0[i]))
       }
     }
-    impl<const N: usize> $scalar_op for Vector<N> {
+    impl<const N: usize, $gen_ty: PartialOrd + Copy +
+      Add<Output=T> + Mul<Output=T> + Sub<Output=T> + Div<Output=T>> $scalar_op for Vector<N, T> {
       type Output = Self;
-      fn $fn_name(self, o: f32) -> Self {
+      fn $fn_name(self, o: $gen_ty) -> Self {
         Self(from_fn(|i| self.0[i] $op_token o))
       }
     }
   }
 }
 
-impl_ops!(std::ops::Add, std::ops::Add<f32>, add, +);
-impl_ops!(std::ops::Sub, std::ops::Sub<f32>, sub, -);
-impl_ops!(std::ops::Mul, std::ops::Mul<f32>, mul, *);
-impl_ops!(std::ops::Div, std::ops::Div<f32>, div, /);
+impl_ops!(Add, T, Add<T>, add, +);
+impl_ops!(Sub, T, Sub<T>, sub, -);
+impl_ops!(Mul, T, Mul<T>, mul, *);
+impl_ops!(Div, T, Div<T>, div, /);
 impl<const N: usize> std::ops::Neg for Vector<N> {
     type Output = Self;
     fn neg(self) -> Self {
@@ -220,20 +244,42 @@ impl_assign_ops!(std::ops::MulAssign, std::ops::MulAssign<f32>, mul_assign, *=);
 impl_assign_ops!(std::ops::DivAssign, std::ops::DivAssign<f32>, div_assign, /=);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Extent<const N: usize> {
-    min: Vector<N>,
-    max: Vector<N>,
+pub struct Extent<const N: usize, T = f32> {
+    pub min: Vector<N, T>,
+    pub max: Vector<N, T>,
 }
-pub type Extent2 = Extent<2>;
-pub type AABB = Extent<3>;
+pub type AABB2<T = f32> = Extent<2, T>;
+pub type AABB<T = f32> = Extent<3, T>;
 
-impl<const N: usize> Extent<N> {
-    pub fn new(a: Vector<N>, b: Vector<N>) -> Self {
+impl AABB2<u32> {
+    fn iter_bounds(&self) -> impl Iterator<Item = [u32; 2]> {
+        let [lx, ly] = self.min.0;
+        let [hx, hy] = self.max.0;
+        (ly..hy).flat_map(move |y| (lx..hx).map(move |x| [x, y]))
+    }
+    fn intersects_tri2<T>(&self, t: triangle::Triangle2<T>) -> bool {
+        todo!()
+    }
+    fn unit_squares(&self) -> impl Iterator<Item = Self> + '_ {
+        (self.min.x()..self.max.x()).flat_map(|x| {
+            (self.min.y()..self.max.y()).map(move |y| {
+                let p = Vector::new([x, y]);
+                Extent::new(p, p + 1)
+            })
+        })
+    }
+}
+
+impl<const N: usize, T: PartialOrd + Copy> Extent<N, T> {
+    pub fn new(a: Vector<N, T>, b: Vector<N, T>) -> Self {
         Self {
             min: a.min(&b),
             max: a.max(&b),
         }
     }
+}
+
+impl<const N: usize> Extent<N> {
     /// Returns an AABB which contains nothing.
     pub fn empty() -> Self {
         Self {
@@ -242,8 +288,7 @@ impl<const N: usize> Extent<N> {
         }
     }
     pub fn reset(&mut self) {
-        self.min = Vector([f32::INFINITY; N]);
-        self.max = Vector([f32::NEG_INFINITY; N]);
+      *self = Self::empty();
     }
     pub fn add_point(&mut self, p: &Vector<N>) {
         self.min = self.min.min(p);
@@ -290,6 +335,32 @@ impl<const N: usize> Extent<N> {
         let center = self.midpoint();
         let scale = self.extent().0[self.largest_dimension()];
         (-center, scale / 2.)
+    }
+    pub fn to_u32(&self) -> Extent<N, u32> {
+        Extent {
+            min: Vector::new(self.min.floor().0.map(|v| v as u32)),
+            max: Vector::new(self.max.ceil().0.map(|v| v as u32)),
+        }
+    }
+}
+
+impl<const N: usize> Mul<f32> for Extent<N> {
+    type Output = Self;
+    fn mul(self, o: f32) -> Self {
+        Self {
+            min: self.min * o,
+            max: self.max * o,
+        }
+    }
+}
+
+impl<const N: usize> Mul<Vector<N>> for Extent<N> {
+    type Output = Self;
+    fn mul(self, o: Vector<N>) -> Self {
+        Self {
+            min: self.min * o,
+            max: self.max * o,
+        }
     }
 }
 

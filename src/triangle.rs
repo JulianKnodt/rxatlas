@@ -1,10 +1,19 @@
-use super::{Vec2, Vec3, Vector};
+use super::{Extent, Vec2, Vec3, Vector};
+use std::ops::Add;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Triangle<const N: usize, T = ()> {
     pub verts: [Vector<N>; 3],
     /// Triangles may contain extra data, or they may be a pure geometric representation.
     pub data: T,
+}
+impl<const N: usize, T> Add<Vector<N>> for Triangle<N, T> {
+    type Output = Self;
+    fn add(self, o: Vector<N>) -> Self {
+        let Self { verts, data } = self;
+        let verts = verts.map(|v| v + o);
+        Self { verts, data }
+    }
 }
 
 pub type Triangle3<T = ()> = Triangle<3, T>;
@@ -46,6 +55,12 @@ impl<T, const N: usize> Triangle<N, T> {
         let p1 = (v2 + v1) * l1 / total;
         let p2 = (v0 + v2) * l2 / total;
         p0 + p1 + p2
+    }
+    pub fn aabb(&self) -> Extent<N> {
+        let [p0, p1, p2] = self.verts;
+        let mut out = Extent::new(p0, p1);
+        out.add_point(&p2);
+        out
     }
 }
 
