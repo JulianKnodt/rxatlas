@@ -254,7 +254,7 @@ impl_assign_ops!(SubAssign, T, SubAssign<T>, sub_assign, -=);
 impl_assign_ops!(MulAssign, T, MulAssign<T>, mul_assign, *=);
 impl_assign_ops!(DivAssign, T, DivAssign<T>, div_assign, /=);
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Extent<const N: usize, T = f32> {
     pub min: Vector<N, T>,
     pub max: Vector<N, T>,
@@ -625,10 +625,10 @@ fn qla_algorithm(mut q: [[f32; 3]; 3], mut diag: Vec3, mut subd: [f32; 3]) {
                 p = s * r;
                 diag.0[i + 1] = g + p;
                 g = c * r - b;
-                for k in 0..3 {
-                    f = q[k][i + 1];
-                    q[k][i + 1] = s * q[k][i] + c * f;
-                    q[k][i] = c * q[k][i] - s * f;
+                for k in &mut q {
+                    f = k[i + 1];
+                    k[i + 1] = s * k[i] + c * f;
+                    k[i] = c * k[i] - s * f;
                 }
             }
             diag.0[dim] -= p;

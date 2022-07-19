@@ -335,7 +335,7 @@ impl Mesh {
         }
         let v = Vector::new([w as f32, h as f32]);
         let iter = self.faces().enumerate().flat_map(move |(f_i, f)| {
-            let tex = f.tex(&self).unwrap();
+            let tex = f.tex(self).unwrap();
             let mut tex_tri_aabb = (tex.aabb() * v).expand_by(1.).to_u32();
             assert!(!tex_tri_aabb.is_empty());
             // just for safety move out one more
@@ -377,7 +377,13 @@ impl Mesh {
     }
 
     /// Shifts and rescales this mesh to a given axis aligned bounding box.
-    pub fn rescale_to_aabb(&mut self, aabb: AABB) {}
+    pub fn rescale_to_aabb(&mut self, aabb: &AABB) {
+        let (shift, scale) = self.aabb().to_other(aabb);
+        for v in self.verts.iter_mut() {
+            *v += shift;
+            *v /= scale;
+        }
+    }
     /*
     /// Returns the assignment of each location in a texture to a face.
     /// If there are no texture coordinates for a mesh, returns an empty vec.

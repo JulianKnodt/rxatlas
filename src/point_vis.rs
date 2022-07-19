@@ -32,3 +32,9 @@ impl PointVisualizer {
         }
     }
 }
+
+impl Default for PointVisualizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
