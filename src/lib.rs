@@ -2,7 +2,7 @@
 #![allow(unused)]
 use std::array::from_fn;
 use std::cmp::Ordering;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 mod bvh;
 pub mod point_vis;
@@ -79,15 +79,15 @@ impl<const N: usize> Vector<N> {
 
 impl<const N: usize, T: PartialOrd + Copy> Vector<N, T> {
     pub fn min(&self, o: &Self) -> Self {
-        Self(from_fn(|i| match self.0[i].partial_cmp(&o.0[i]) {
-            None | Some(Ordering::Less) | Some(Ordering::Equal) => self.0[0],
-            Some(Ordering::Greater) => o.0[0],
+        Self(from_fn(|dim| match self.0[dim].partial_cmp(&o.0[dim]) {
+            None | Some(Ordering::Less) | Some(Ordering::Equal) => self.0[dim],
+            Some(Ordering::Greater) => o.0[dim],
         }))
     }
     pub fn max(&self, o: &Self) -> Self {
-        Self(from_fn(|i| match self.0[i].partial_cmp(&o.0[i]) {
-            None | Some(Ordering::Greater) | Some(Ordering::Equal) => self.0[0],
-            Some(Ordering::Less) => o.0[0],
+        Self(from_fn(|dim| match self.0[dim].partial_cmp(&o.0[dim]) {
+            None | Some(Ordering::Greater) | Some(Ordering::Equal) => self.0[dim],
+            Some(Ordering::Less) => o.0[dim],
         }))
     }
 }
@@ -110,6 +110,7 @@ impl<T: Copy> Vec2<T> {
         self.0[1]
     }
 }
+
 impl Vec2 {
     #[inline]
     pub fn cross(&self, other: &Self) -> f32 {
@@ -123,6 +124,12 @@ impl Vec2 {
     #[inline]
     pub fn homogeneous(&self) -> Vec3 {
         Vector::new([self.x(), self.y(), 1.])
+    }
+    /// Find where the line Ax + b intersects a given coordinate along some dimension
+    /// If parallel, may return NaN.
+    pub fn line_intersects(a: Vec2, b: Vec2, dim: usize, val: f32) -> f32 {
+        assert!(dim <= 1, "Only two valid dimensions");
+        (val - b.0[dim]) / a.0[dim]
     }
 }
 
@@ -143,6 +150,8 @@ impl Vec3 {
     pub fn z(&self) -> f32 {
         self.0[2]
     }
+
+    #[inline]
     pub fn cross(&self, o: &Self) -> Self {
         let &Vector([x, y, z]) = self;
         let &Vector([a, b, c]) = o;
@@ -206,6 +215,7 @@ impl_ops!(Add, T, Add<T>, add, +);
 impl_ops!(Sub, T, Sub<T>, sub, -);
 impl_ops!(Mul, T, Mul<T>, mul, *);
 impl_ops!(Div, T, Div<T>, div, /);
+
 impl<const N: usize> std::ops::Neg for Vector<N> {
     type Output = Self;
     fn neg(self) -> Self {
@@ -219,7 +229,7 @@ impl Default for Vec3 {
 }
 
 macro_rules! impl_assign_ops {
-  ($op: ty, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
+  ($op: ty, $gen_ty: ident, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
     impl<const N: usize> $op for Vector<N> {
       fn $fn_name(&mut self, o: Self) {
         for i in 0..N {
@@ -228,8 +238,9 @@ macro_rules! impl_assign_ops {
       }
     }
 
-    impl<const N: usize> $scalar_op for Vector<N> {
-      fn $fn_name(&mut self, o: f32) {
+    impl<const N: usize, $gen_ty> $scalar_op for Vector<N, T> where
+      $gen_ty: PartialOrd + Copy + AddAssign + SubAssign + MulAssign + DivAssign {
+      fn $fn_name(&mut self, o: T) {
         for i in 0..N {
           self.0[i] $op_token o;
         }
@@ -238,30 +249,31 @@ macro_rules! impl_assign_ops {
   }
 }
 
-impl_assign_ops!(std::ops::AddAssign, std::ops::AddAssign<f32>, add_assign, +=);
-impl_assign_ops!(std::ops::SubAssign, std::ops::SubAssign<f32>, sub_assign, -=);
-impl_assign_ops!(std::ops::MulAssign, std::ops::MulAssign<f32>, mul_assign, *=);
-impl_assign_ops!(std::ops::DivAssign, std::ops::DivAssign<f32>, div_assign, /=);
+impl_assign_ops!(AddAssign, T, AddAssign<T>, add_assign, +=);
+impl_assign_ops!(SubAssign, T, SubAssign<T>, sub_assign, -=);
+impl_assign_ops!(MulAssign, T, MulAssign<T>, mul_assign, *=);
+impl_assign_ops!(DivAssign, T, DivAssign<T>, div_assign, /=);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct Extent<const N: usize, T = f32> {
     pub min: Vector<N, T>,
     pub max: Vector<N, T>,
 }
+
 pub type AABB2<T = f32> = Extent<2, T>;
+
 pub type AABB<T = f32> = Extent<3, T>;
 
 impl AABB2<u32> {
-    fn iter_bounds(&self) -> impl Iterator<Item = [u32; 2]> {
+    #[inline]
+    pub fn iter_bounds(&self) -> impl Iterator<Item = [u32; 2]> {
         let [lx, ly] = self.min.0;
         let [hx, hy] = self.max.0;
         (ly..hy).flat_map(move |y| (lx..hx).map(move |x| [x, y]))
     }
-    fn intersects_tri2<T>(&self, t: triangle::Triangle2<T>) -> bool {
-        todo!()
-    }
-    fn unit_squares(&self) -> impl Iterator<Item = Self> + '_ {
-        (self.min.x()..self.max.x()).flat_map(|x| {
+    #[inline]
+    pub fn unit_squares(self) -> impl Iterator<Item = Self> {
+        (self.min.x()..self.max.x()).flat_map(move |x| {
             (self.min.y()..self.max.y()).map(move |y| {
                 let p = Vector::new([x, y]);
                 Extent::new(p, p + 1)
@@ -270,26 +282,100 @@ impl AABB2<u32> {
     }
 }
 
+impl AABB2 {
+    #[inline]
+    pub fn intersects_tri2<T>(&self, t: &triangle::Triangle2<T>) -> bool {
+        let [v0, v1, v2] = t.verts;
+        // Check if the aabb contains any of the triangle's vertices
+        let tri_in_box =
+            self.contains_point(&v0) || self.contains_point(&v1) || self.contains_point(&v2);
+        if tri_in_box {
+            return true;
+        }
+
+        // Check if the box contains any corner of the triangle triangle
+        let box_in_tri = self.corners().into_iter().any(|c| t.contains(c));
+        if box_in_tri {
+            return true;
+        }
+        // otherwise, look at equation of each edge, compute where it would intersect the bounding
+        // box, and see if it in the bounds
+        let edge_intersects = move |a, b| {
+            let edge = a - b;
+            let t0 = Vec2::line_intersects(edge, b, 0, self.min.x());
+            let t1 = Vec2::line_intersects(edge, b, 0, self.max.x());
+
+            let y0 = b.y() + edge.y() * t0;
+            let y1 = b.y() + edge.y() * t1;
+
+            let y_min = y0.min(y1);
+            let y_max = y0.max(y1);
+
+            // if contains either y
+            (y_min <= self.min.y() && self.min.y() <= y_max)
+                || (y_min <= self.max.y() && self.max.y() <= y_min)
+        };
+        edge_intersects(v1, v0) || edge_intersects(v2, v1) || edge_intersects(v2, v0)
+    }
+}
+
+impl<T: PartialOrd + Copy> AABB2<T> {
+    #[inline]
+    pub fn corners(&self) -> [Vec2<T>; 4] {
+        [
+            self.min,
+            Vector::new([self.min.x(), self.max.y()]),
+            Vector::new([self.max.x(), self.min.y()]),
+            self.max,
+        ]
+    }
+}
+
 impl<const N: usize, T: PartialOrd + Copy> Extent<N, T> {
+    #[inline]
     pub fn new(a: Vector<N, T>, b: Vector<N, T>) -> Self {
         Self {
             min: a.min(&b),
             max: a.max(&b),
         }
     }
+    /// Returns if a value is within a dimension
+    #[inline]
+    fn within_dim(&self, dim: usize, v: T) -> bool {
+        self.min.0[dim] <= v && v <= self.max.0[dim]
+    }
+    #[inline]
+    pub fn contains_point(&self, p: &Vector<N, T>) -> bool {
+        p.0.iter()
+            .enumerate()
+            .all(|(dim, &c)| self.within_dim(dim, c))
+    }
+}
+
+impl<const N: usize, T: Copy> Extent<N, T>
+where
+    Vector<N, T>: AddAssign<T> + SubAssign<T>,
+{
+    pub fn expand_by(&mut self, radius: T) {
+        self.min -= radius;
+        self.max += radius;
+    }
 }
 
 impl<const N: usize> Extent<N> {
     /// Returns an AABB which contains nothing.
+    #[inline]
     pub fn empty() -> Self {
         Self {
             min: Vector([f32::INFINITY; N]),
             max: Vector([f32::NEG_INFINITY; N]),
         }
     }
+    #[inline]
     pub fn reset(&mut self) {
-      *self = Self::empty();
+        *self = Self::empty();
     }
+    #[inline]
     pub fn add_point(&mut self, p: &Vector<N>) {
         self.min = self.min.min(p);
         self.max = self.max.max(p);
@@ -298,16 +384,13 @@ impl<const N: usize> Extent<N> {
         self.min = self.min.min(&v.min);
         self.max = self.max.max(&v.max);
     }
-    pub fn expand_by(&mut self, radius: f32) {
-        self.min -= radius;
-        self.max += radius;
-    }
     /// Computes the diagonal of this aabb, which spans the box.
     #[inline]
     pub fn extent(&self) -> Vector<N> {
         self.max - self.min
     }
     /// Returns the center of this extent
+    #[inline]
     pub fn midpoint(&self) -> Vector<N> {
         self.min + (self.max - self.min) / 2.
     }
@@ -319,27 +402,44 @@ impl<const N: usize> Extent<N> {
         }
         true
     }
-    /// Which dimension of this box is largest?
+    /// Returns the largest dimension of this AABB, as well as its value.
     #[inline]
-    pub fn largest_dimension(&self) -> usize {
+    pub fn largest_dimension(&self) -> (usize, f32) {
         self.extent()
             .0
             .iter()
+            .copied()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .unwrap()
-            .0
     }
     /// Returns the amount to shift this aabb such that it fits within [-1,1].
+    #[inline]
     pub fn to_unit(&self) -> (Vector<N>, f32) {
         let center = self.midpoint();
-        let scale = self.extent().0[self.largest_dimension()];
+        let scale = self.largest_dimension().1;
         (-center, scale / 2.)
     }
+
+    /// Returns the shift and scale needed to convert this aabb into the other.
+    pub fn to_other(&self, o: &Self) -> (Vector<N>, Vector<N>) {
+        (o.midpoint() - self.midpoint(), o.extent() / self.extent())
+    }
+    #[inline]
     pub fn to_u32(&self) -> Extent<N, u32> {
         Extent {
             min: Vector::new(self.min.floor().0.map(|v| v as u32)),
             max: Vector::new(self.max.ceil().0.map(|v| v as u32)),
+        }
+    }
+}
+
+impl<const N: usize> Extent<N, u32> {
+    #[inline]
+    pub fn to_f32(&self) -> Extent<N, f32> {
+        Extent {
+            min: Vector::new(self.min.0.map(|v| v as f32)),
+            max: Vector::new(self.max.0.map(|v| v as f32)),
         }
     }
 }
@@ -360,6 +460,16 @@ impl<const N: usize> Mul<Vector<N>> for Extent<N> {
         Self {
             min: self.min * o,
             max: self.max * o,
+        }
+    }
+}
+
+impl<const N: usize> Div<Vector<N>> for Extent<N> {
+    type Output = Self;
+    fn div(self, o: Vector<N>) -> Self {
+        Self {
+            min: self.min / o,
+            max: self.max / o,
         }
     }
 }
@@ -638,6 +748,10 @@ pub struct Ray {
 }
 
 impl Ray {
+    #[inline]
+    pub fn new(origin: Vec3, dir: Vec3) -> Self {
+        Ray { origin, dir }
+    }
     /// Returns the position `t` distance along this ray.
     #[inline]
     pub fn at(&self, t: f32) -> Vec3 {

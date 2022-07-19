@@ -21,7 +21,7 @@ struct Args {
     #[clap(long, value_parser, default_value_t = 512)]
     res: u32,
 
-    #[clap(long, value_parser, default_value = "normal")]
+    #[clap(long, value_parser, default_value_t = RenderKind::Normal)]
     kind: RenderKind,
 
     #[clap(long, value_parser)]
@@ -35,6 +35,12 @@ pub enum RenderKind {
     Normal,
     UV,
     Diffuse,
+}
+
+impl std::fmt::Display for RenderKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl core::str::FromStr for RenderKind {
@@ -71,12 +77,7 @@ pub fn main() {
         None
     };
     let mut mesh = mesh.to_mesh();
-    let (shift, scale) = mesh.aabb().to_unit();
-    for v in mesh.verts.iter_mut() {
-        *v += shift;
-        *v /= scale;
-    }
-
+    mesh.rescale_to_unit_aabb();
     mesh.apply_average_face_normals();
     let bvh = mesh.bvh();
 

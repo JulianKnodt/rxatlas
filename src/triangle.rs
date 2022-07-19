@@ -23,12 +23,14 @@ impl<T, const N: usize> Triangle<N, T> {
     pub fn new(verts: [Vector<N>; 3], data: T) -> Self {
         Self { verts, data }
     }
+
     pub fn shrink(self) -> Triangle<N, ()> {
         Triangle {
             verts: self.verts,
             data: (),
         }
     }
+
     pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Triangle<N, U> {
         let Triangle { verts, data } = self;
         Triangle {
@@ -71,10 +73,12 @@ impl<T> Triangle3<T> {
         let &[v0, v1, v2] = &self.verts;
         (v1 - v0).cross(&(v2 - v0))
     }
+    #[inline]
     pub fn area(&self) -> f32 {
         super::triangle3d_area(self.verts)
     }
 
+    #[inline]
     pub fn barycentric_coord(&self, p: Vec3) -> Vec3 {
         let [v0, v1, v2] = self.verts;
         let a0 = super::triangle3d_area([v0, p, v1]);
@@ -90,9 +94,19 @@ impl<T> Triangle3<T> {
         let Vector([u, v, w]) = bary;
         v0 * u + v1 * v + v2 * w
     }
+
+    /// Returns whether or not the triangular prism defined by this triangle contains a point.
+    #[inline]
+    pub fn contains(&self, v: Vec3) -> bool {
+        self.barycentric_coord(v)
+            .0
+            .iter()
+            .all(|&c| 0. <= c && c <= 1.)
+    }
 }
 
 impl<T> Triangle2<T> {
+    /// Returns the area of this triangle
     #[inline]
     pub fn area(&self) -> f32 {
         super::triangle2d_area(self.verts)
@@ -103,12 +117,20 @@ impl<T> Triangle2<T> {
         let a1 = super::triangle2d_area([v1, p, v2]);
         let a2 = super::triangle2d_area([v2, p, v0]);
         let total_area = a0 + a1 + a2;
-        Vector([a0, a1, a2]) / total_area
+        Vector([a1, a2, a0]) / total_area
     }
     #[inline]
     /// Gets the global position of a barycentric coordinate for this triangle
     pub fn bary_to_world(&self, Vector([u, v, w]): Vec3) -> Vec2 {
         let [v0, v1, v2] = self.verts;
         v0 * u + v1 * v + v2 * w
+    }
+
+    #[inline]
+    pub fn contains(&self, v: Vec2) -> bool {
+        self.barycentric_coord(v)
+            .0
+            .iter()
+            .all(|&c| 0. <= c && c <= 1.)
     }
 }

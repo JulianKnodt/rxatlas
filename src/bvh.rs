@@ -59,6 +59,7 @@ impl BVHNode {
         self.num_prims > 0
     }
     /// Sets the left child of this node, and returns (first_prim, number of primitives) it had before
+    #[inline]
     fn set_left_child(&mut self, left_child: usize) -> (usize, usize) {
         assert!(self.is_leaf());
         (
@@ -76,6 +77,7 @@ impl BVHNode {
         assert!(self.is_leaf());
         self.left_child_or_first_prim
     }
+    #[inline]
     fn set_prims(&mut self, first_prim: usize, num_prims: usize) {
         self.left_child_or_first_prim = first_prim;
         self.num_prims = num_prims;
@@ -83,6 +85,7 @@ impl BVHNode {
 }
 
 impl BVHNode {
+    #[inline]
     // returns a new empty instance of a bounding volume hierarchy node.
     fn new() -> Self {
         Self {
@@ -136,6 +139,7 @@ impl<'a> BVH<'a> {
     }
 
     /// Updates a node's bounds to contain all of the triangles it encloses
+    #[inline]
     fn update_node_bounds(&mut self, idx: usize) {
         let node = &mut self.nodes[idx];
         node.aabb.reset();
@@ -157,7 +161,7 @@ impl<'a> BVH<'a> {
             return;
         }
         // which axis are we splitting along, and along this axis at what point are we splitting?
-        let axis = node.aabb.largest_dimension();
+        let axis = node.aabb.largest_dimension().0;
         // Split pos strategy is just half the largest axis
         let split_pos = node.aabb.midpoint().0[axis];
 
@@ -200,6 +204,7 @@ impl<'a> BVH<'a> {
         self.intersects_node(ray, self.root_node_idx, None)
     }
 
+    #[inline]
     /// Recursive algorithm to compute intersection with BVH nodes
     fn intersects_node(
         &self,
@@ -215,7 +220,7 @@ impl<'a> BVH<'a> {
             (node.first_prim()..node.first_prim() + node.num_prims)
                 .filter_map(|i| {
                     let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
-                    intersect_tri(tri, ray, 1e-5).map(|t| Intersection {
+                    intersect_tri(tri, ray, 1e-8).map(|t| Intersection {
                         t,
                         face: self.tris[i],
                     })
@@ -237,6 +242,7 @@ impl<'a> BVH<'a> {
     }
 
     /// Finds triangles which intersect this aabb, pushing their indeces onto out
+    #[inline]
     pub fn intersects_aabb(&self, aabb: &AABB, out: &mut Vec<usize>) {
         self.intersects_aabb_internal(aabb, out, self.root_node_idx);
     }
@@ -264,13 +270,5 @@ impl Surface for BVH<'_> {
     #[inline]
     fn intersect_ray(&self, ray: &Ray) -> Option<Intersection> {
         self.intersects(ray)
-    }
-}
-
-fn option_min(a: Option<f32>, b: Option<f32>) -> Option<f32> {
-    match (a, b) {
-        (None, None) => None,
-        (Some(v), None) | (None, Some(v)) => Some(v),
-        (Some(a), Some(b)) => Some(a.min(b)),
     }
 }

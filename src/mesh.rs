@@ -2,6 +2,7 @@ use super::bvh::BVH;
 use super::triangle::{Triangle, Triangle2, Triangle3};
 use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB};
 use std::collections::{HashMap, HashSet};
+use std::iter;
 
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
 pub struct Edge([usize; 2]);
@@ -313,27 +314,60 @@ impl Mesh {
         BVH::new(self)
     }
     /// Iterator over texture locations, correspoding to a face, and barycentric
-    /// coordinate.
-    pub fn texel_coordinates(
+    /// coordinate, corresponding to a pixel in an image with a given width and height.
+    ///
+    /// If the mesh does not have textures, returns None.
+    pub fn interior_texels(
         &self,
         w: u32,
         h: u32,
-    ) -> Option<impl Iterator<Item = ([u32; 2], usize, Vec3)> + '_> {
+    ) -> Option<impl Iterator<Item = (Vec2<u32>, usize, Vec3)> + '_> {
         if self.tex_coords.is_empty() {
             return None;
         }
         let v = Vector::new([w as f32, h as f32]);
-        let iter = self.faces().flat_map(move |f| {
+        let iter = self.faces().enumerate().flat_map(move |(f_i, f)| {
             let tex = f.tex(&self).unwrap();
-            let aabb = (tex.aabb() * v).to_u32();
+            let mut tex_tri_aabb = (tex.aabb() * v).to_u32();
+            // just for safety move out one more
+            tex_tri_aabb.expand_by(1);
             // Here, for each 1x1 pixel in the texture's aabb,
             // check if it intersects the triangle.
             // If it does, then output it.
-            todo!();
-            []
+            tex_tri_aabb.unit_squares().filter_map(move |pixel| {
+                // convert pixel back to [0-1] fp space
+                let img_pix = pixel.to_f32() / v;
+                // try each corner, more reliable than midpoint.
+                let midpoint = img_pix.midpoint();
+                if !img_pix
+                    .corners()
+                    .into_iter()
+                    .chain(iter::once(midpoint))
+                    .any(|c| tex.contains(c))
+                {
+                    return None;
+                }
+                let bary = tex.barycentric_coord(midpoint);
+                Some((pixel.min, f_i, bary))
+            })
         });
         Some(iter)
     }
+
+    /// Shifts and scales this mesh to fit inside the unit box.
+    ///
+    /// Transforms in place.
+    pub fn rescale_to_unit_aabb(&mut self) {
+        let (shift, scale) = self.aabb().to_unit();
+        for v in self.verts.iter_mut() {
+            *v += shift;
+            *v /= scale;
+        }
+    }
+
+    /// Shifts and rescales this mesh to a given axis aligned bounding box.
+    pub fn rescale_to_aabb(&mut self, aabb: AABB) {}
+    /*
     /// Returns the assignment of each location in a texture to a face.
     /// If there are no texture coordinates for a mesh, returns an empty vec.
     pub fn tex_faces(&self, w: u32, h: u32) -> Vec<Vec<u32>> {
@@ -348,6 +382,8 @@ impl Mesh {
         }
         out
     }
+    */
+
     /*
     // TODO before implementing this need to have some way to represent adjacencies.
     pub fn laplacian_weights(&self, from: usize, to: usize) -> f32 {
