@@ -1,5 +1,6 @@
 use super::Vector;
 
+#[inline]
 /// Shitty randomizer for values in [0,1]
 pub fn rand(seed: f32) -> f32 {
     static mut C: f32 = 1.0;
@@ -11,6 +12,7 @@ pub fn rand(seed: f32) -> f32 {
     }
 }
 
+#[inline]
 /// Returns a random vector with all elements in [0,1].
 pub fn rand_vec<const N: usize>() -> Vector<N> {
     Vector(std::array::from_fn(|i| rand(i as f32)))
