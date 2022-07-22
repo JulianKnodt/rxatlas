@@ -339,16 +339,11 @@ impl Mesh {
                 let img_pix = pixel.to_f32() / v;
                 // try each corner, more reliable than midpoint.
                 let midpoint = img_pix.midpoint();
-                if !img_pix
-                    .corners()
-                    .into_iter()
-                    .chain(iter::once(midpoint))
-                    .any(|c| tex.contains(c))
-                {
-                    return None;
-                }
-                let bary = tex.barycentric_coord(midpoint);
-                Some((pixel.min, f_i, bary))
+                let mut overlapping_pts = iter::once(midpoint)
+                    .chain(img_pix.corners().into_iter())
+                    .filter(|&c| tex.contains(c));
+                let p = overlapping_pts.next()?;
+                Some((pixel.min, f_i, tex.barycentric_coord(p)))
             })
         });
         Some(iter)

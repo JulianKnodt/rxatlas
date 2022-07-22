@@ -1,3 +1,4 @@
+/// Small tool for visualizing a set of 2D points.
 use super::{Vec2, Vector};
 use image::{DynamicImage, GenericImage, ImageBuffer, Rgba};
 

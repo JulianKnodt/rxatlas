@@ -1,5 +1,6 @@
 use super::{Basis, Vec3, Vector};
 
+/// Represents a plane in 3D.
 #[derive(Debug)]
 pub struct Plane {
     point: Vec3,

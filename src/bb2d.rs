@@ -1,6 +1,7 @@
 use super::{Vec2, Vector};
 use std::cmp::Ordering;
 
+// TODO what was this for?
 /// Not necessarily aligned bounding box
 #[derive(Debug)]
 pub struct BoundingBox2D {

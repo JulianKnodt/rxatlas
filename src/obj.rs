@@ -6,11 +6,15 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
+/// Represents a single OBJ file, as well as materials for that OBJ file.
 #[derive(Default)]
 pub struct Obj {
     pub objects: Vec<ObjObject>,
+    // TODO add groups? What's the difference between groups and objects?
     pub mtls: Vec<(String, MTL)>,
 }
+
+// TODO need to implement a way to fuse a bunch of MTL files into a single super Material.
 
 #[derive(Debug, Clone, Default)]
 pub struct ObjObject {
@@ -263,7 +267,46 @@ impl ObjObject {
         }
         m
     }
-    // TODO need to convert back from mesh to an obj file?
+    /// Writes this obj object out to a writer
+    pub fn write(&self, mut dst: impl Write) -> io::Result<()> {
+        dst.write(b"mtllib mesh.mtl\n")?;
+        dst.write(b"g default\n")?;
+
+        for v in &self.v {
+            let Vector([x, y, z]) = v;
+            write!(dst, "v {x} {y} {z}\n")?;
+        }
+
+        for vt in &self.vt {
+            let Vector([u, v]) = vt;
+            let v = 1.0 - v; // Have to flip UV for compatibility
+            write!(dst, "vt {u} {v}\n")?;
+        }
+
+        for vn in &self.vn {
+            let Vector([x, y, z]) = vn;
+            write!(dst, "vn {x} {y} {z}\n")?;
+        }
+
+        dst.write(b"s 1\n")?;
+        dst.write(b"g mesh_1\n")?;
+        dst.write(b"usemtl default_mat\n")?;
+
+        for f in &self.f {
+            dst.write(b"f ");
+            let [v0, v1, v2] = f.v;
+            match (f.vt, f.vn) {
+                (None, None) => write!(dst, "{v0}// {v1}// {v2}//"),
+                (None, Some([vn0, vn1, vn2])) => write!(dst, "{v0}//{vn0} {v1}//{vn1} {v2}//{vn2}"),
+                (Some([vt0, vt1, vt2]), None) => write!(dst, "{v0}/{vt0}/ {v1}/{vt1}/ {v2}/{vt2}/"),
+                (Some([vt0, vt1, vt2]), Some([vn0, vn1, vn2])) => {
+                    write!(dst, "{v0}/{vt0}/{vn0} {v1}/{vt1}/{vn1} {v2}/{vt2}/{vn2}")
+                }
+            }?;
+            dst.write(b"\n");
+        }
+        Ok(())
+    }
 }
 
 impl Mesh {
