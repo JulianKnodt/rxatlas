@@ -63,7 +63,7 @@ impl core::str::FromStr for RenderKind {
 pub fn main() {
     let args = Args::parse();
 
-    let mesh = obj::parse(&args.mesh)
+    let mesh = obj::parse(&args.mesh, false, false)
         .expect("Failed to parse mesh")
         .objects
         .pop()

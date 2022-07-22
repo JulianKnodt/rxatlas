@@ -438,7 +438,7 @@ impl FaceComponents {
 // https://alain.xyz/research/baked-texture-generation/assets/gpuzen2-baked-texture-generation.pdf
 // implementation of baking components
 impl Mesh {
-    fn trace_ray(&self, face_idx: usize, bary: Vec3, smooth_normal: Vec3) -> (Vec3, Vec3) {
+    pub fn trace_ray(&self, face_idx: usize, bary: Vec3, smooth_normal: Vec3) -> (Vec3, Vec3) {
         let f = self.face(face_idx);
         let fp = f.pos(self);
         let pos = fp.bary_to_world(bary);
