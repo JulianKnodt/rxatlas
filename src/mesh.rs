@@ -310,8 +310,14 @@ impl Mesh {
             *v += *vn * amt;
         }
     }
+    /// Returns a BVH for intersecting this mesh.
     pub fn bvh(&self) -> BVH<'_> {
         BVH::new(self)
+    }
+
+    /// Returns whether this mesh has vertex normals
+    pub fn has_vertex_normals(&self) -> bool {
+        !self.face_normals.is_empty() && !self.normals.is_empty()
     }
     /// Iterator over texture locations, correspoding to a face, and barycentric
     /// coordinate, corresponding to a pixel in an image with a given width and height.
@@ -339,11 +345,18 @@ impl Mesh {
                 let img_pix = pixel.to_f32() / v;
                 // try each corner, more reliable than midpoint.
                 let midpoint = img_pix.midpoint();
-                let mut overlapping_pts = iter::once(midpoint)
+                let (count_hits, pt_sum) = iter::once(midpoint)
                     .chain(img_pix.corners().into_iter())
-                    .filter(|&c| tex.contains(c));
-                let p = overlapping_pts.next()?;
-                Some((pixel.min, f_i, tex.barycentric_coord(p)))
+                    .filter(|&c| tex.contains(c))
+                    .map(|c| (1, c))
+                    .reduce(|(e0, c0), (e1, c1)| (e0 + e1, c0 + c1))?;
+                // TODO maybe return an iterator which filters items within the triangle?
+                assert_ne!(count_hits, 0);
+                Some((
+                    pixel.min,
+                    f_i,
+                    tex.barycentric_coord(pt_sum / (count_hits as f32)),
+                ))
             })
         });
         Some(iter)

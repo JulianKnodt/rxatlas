@@ -294,7 +294,10 @@ impl ObjObject {
         for f in &self.f {
             dst.write(b"f ");
             let [v0, v1, v2] = f.v.map(|v| v + 1);
-            match (f.vt.map(|vt| vt.map(|vt| vt + 1)), f.vn.map(|vn| vn.map(|vn| vn+1))) {
+            match (
+                f.vt.map(|vt| vt.map(|vt| vt + 1)),
+                f.vn.map(|vn| vn.map(|vn| vn + 1)),
+            ) {
                 (None, None) => write!(dst, "{v0}// {v1}// {v2}//"),
                 (None, Some([vn0, vn1, vn2])) => write!(dst, "{v0}//{vn0} {v1}//{vn1} {v2}//{vn2}"),
                 (Some([vt0, vt1, vt2]), None) => write!(dst, "{v0}/{vt0}/ {v1}/{vt1}/ {v2}/{vt2}/"),
