@@ -211,6 +211,8 @@ impl Mesh {
         }
         out
     }
+
+    /// Returns an AABB for this mesh that exactly bounds its vertices.
     pub fn aabb(&self) -> AABB {
         let mut aabb = AABB::empty();
         for v in &self.verts {
@@ -334,9 +336,10 @@ impl Mesh {
         let v = Vector::new([w as f32, h as f32]);
         let iter = self.faces().enumerate().flat_map(move |(f_i, f)| {
             let tex = f.tex(&self).unwrap();
-            let mut tex_tri_aabb = (tex.aabb() * v).to_u32();
+            let mut tex_tri_aabb = (tex.aabb() * v).expand_by(1.).to_u32();
+            assert!(!tex_tri_aabb.is_empty());
             // just for safety move out one more
-            tex_tri_aabb.expand_by(1);
+            //tex_tri_aabb.expand_by(1);
             // Here, for each 1x1 pixel in the texture's aabb,
             // check if it intersects the triangle.
             // If it does, then output it.

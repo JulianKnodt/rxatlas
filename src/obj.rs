@@ -1,10 +1,11 @@
 use super::mesh::{Mesh, MeshFace};
-use image::{open as image_open, DynamicImage};
+use image::{self, DynamicImage};
 
 use super::{Vec2, Vec3, Vector};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
 
 /// Represents a single OBJ file, as well as materials for that OBJ file.
 #[derive(Default)]
@@ -36,6 +37,7 @@ pub struct MTL {
     pub ka: Vec3,
     pub kd: Vec3,
     pub ks: Vec3,
+    pub ke: Vec3,
 
     /// diffuse map
     pub map_kd: Option<DynamicImage>,
@@ -45,6 +47,11 @@ pub struct MTL {
     pub map_ka: Option<DynamicImage>,
     /// Normal Map
     pub bump_normal: Option<DynamicImage>,
+
+    /// Read but don't do anything yet
+    pub ns: f32,
+    pub ni: f32,
+    pub d: f32,
 }
 
 impl MTL {
@@ -81,8 +88,8 @@ fn parse_face(f0: &str, f1: &str, f2: &str, mat: Option<usize>) -> MeshFace {
 
 /// Parses a file specified by path `p`.
 /// If split_by_object, will return different objects for each group.
-pub fn parse(p: &str, split_by_object: bool, split_by_group: bool) -> io::Result<Obj> {
-    let f = File::open(p)?;
+pub fn parse(p: impl AsRef<Path>, split_by_object: bool, split_by_group: bool) -> io::Result<Obj> {
+    let f = File::open(p.as_ref())?;
     let mut buf_read = BufReader::new(f);
     let mut obj = Obj::default();
     let mut curr_obj = ObjObject::default();
@@ -132,15 +139,18 @@ pub fn parse(p: &str, split_by_object: bool, split_by_group: bool) -> io::Result
                     obj.objects.push(old);
                 }
             }
+            // TODO not sure what to do for smoothing groups
+            "s" => {}
             "mtllib" => {
                 let Some(mtl_file) = iter.next() else { panic!("Missing mtl file in {l}") };
-                let mtls = parse_mtl(mtl_file)?;
+                let mtls = parse_mtl(p.as_ref().with_file_name(mtl_file))?;
                 obj.mtls.extend(mtls);
             }
             "usemtl" => {
                 let Some(mtl_name) = iter.next() else { panic!("Missing mtl name in {l}") };
                 let Some(mtl_idx) = obj.mtls.iter().position(|mtl| mtl.0 == mtl_name) else {
-                    panic!("Could not find mtl {mtl_name}");
+                    panic!("Could not find mtl {mtl_name}, have {:?}",
+                        obj.mtls.iter().map(|(n, _)| n).collect::<Vec<_>>());
                 };
                 curr_mtl = Some(mtl_idx);
             }
@@ -153,8 +163,8 @@ pub fn parse(p: &str, split_by_object: bool, split_by_group: bool) -> io::Result
     Ok(obj)
 }
 
-pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
-    let f = File::open(p)?;
+pub fn parse_mtl(p: impl AsRef<Path>) -> io::Result<Vec<(String, MTL)>> {
+    let f = File::open(p.as_ref())?;
     let mut buf_read = BufReader::new(f);
     let mut curr_mtl = MTL::default();
     let mut curr_name = String::new();
@@ -168,13 +178,14 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
         let kind = kind.to_lowercase();
         match kind.as_str() {
             ht if ht.starts_with('#') => continue,
-            "kd" | "ks" | "ka" => match [iter.next(), iter.next(), iter.next()] {
+            "kd" | "ks" | "ka" | "ke" => match [iter.next(), iter.next(), iter.next()] {
                 [None, _, _] | [_, None, _] | [_, _, None] => panic!("Unsupported {kind} {l}"),
                 [Some(r), Some(g), Some(b)] => {
                     *match kind.as_str() {
                         "kd" => &mut curr_mtl.kd,
                         "ks" => &mut curr_mtl.ks,
                         "ka" => &mut curr_mtl.ka,
+                        "ke" => &mut curr_mtl.ke,
                         _ => unreachable!(),
                     } = Vector::new([pf32(r), pf32(g), pf32(b)]);
                 }
@@ -182,7 +193,8 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
             "map_kd" | "map_ka" | "map_ks" => {
                 let Some(f) = iter.next() else { panic!("Missing file from {l}"); };
                 // TODO should be relative to mtl file?
-                let img = image_open(f).expect("Failed to load mtl file");
+                let mtl_path = p.as_ref().with_file_name(f);
+                let img = image::open(mtl_path).expect("Failed to load mtl file");
                 *match kind.as_str() {
                     "map_kd" => &mut curr_mtl.map_kd,
                     "map_ks" => &mut curr_mtl.map_ks,
@@ -198,8 +210,23 @@ pub fn parse_mtl(p: &str) -> io::Result<Vec<(String, MTL)>> {
                     out.push((old_name, old));
                 }
             }
-            _ => todo!("handle {l}"),
+            "ns" | "ni" | "d" => {
+                let Some(v) = iter.next() else { panic!("Missing value in {} ", l) };
+                *match kind.as_str() {
+                    "ni" => &mut curr_mtl.ni,
+                    "ns" => &mut curr_mtl.ns,
+                    "d" => &mut curr_mtl.d,
+                    _ => unreachable!(),
+                } = pf32(v);
+            }
+            "illum" => {
+                println!("IGNORED {}", l);
+            }
+            _ => todo!("TODO implement MTL line {l}"),
         }
+    }
+    if !curr_mtl.is_empty() {
+        out.push((curr_name, curr_mtl));
     }
     Ok(out)
 }

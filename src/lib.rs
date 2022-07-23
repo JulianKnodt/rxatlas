@@ -350,15 +350,21 @@ impl<const N: usize, T: PartialOrd + Copy> Extent<N, T> {
             .enumerate()
             .all(|(dim, &c)| self.within_dim(dim, c))
     }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.min.0.iter().zip(self.max.0).any(|(&l, h)| l >= h)
+    }
 }
 
 impl<const N: usize, T: Copy> Extent<N, T>
 where
-    Vector<N, T>: AddAssign<T> + SubAssign<T>,
+    Vector<N, T>: Add<T, Output = Vector<N, T>> + Sub<T, Output = Vector<N, T>>,
 {
-    pub fn expand_by(&mut self, radius: T) {
-        self.min -= radius;
-        self.max += radius;
+    pub fn expand_by(&self, radius: T) -> Self {
+        Self {
+            min: self.min - radius,
+            max: self.max + radius,
+        }
     }
 }
 
