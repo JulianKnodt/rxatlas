@@ -1,11 +1,14 @@
 use super::bvh::BVH;
+use super::linalg::SparseMatrix;
 use super::triangle::{Triangle, Triangle2, Triangle3};
 use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB};
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter;
 
-/// A bunch of type aliases for indexing into different stuff.
-/// Mostly to self-document code
+// A bunch of type aliases for indexing into different stuff.
+// Mostly to self-document code.
+
 pub type VertIdx = usize;
 pub type VertNIdx = usize;
 pub type VertTIdx = usize;
@@ -21,6 +24,11 @@ impl Edge {
     pub fn new(from: usize, to: usize) -> Self {
         assert_ne!(from, to, "Cannot connect a vertex to itself");
         Edge([from.min(to), from.max(to)])
+    }
+    #[inline]
+    pub fn flipped(self) -> [usize; 2] {
+        let Edge([l, h]) = self;
+        [h, l]
     }
 }
 
@@ -95,15 +103,13 @@ impl MeshFace {
         self.vt
             .map(|vt| Triangle::new(vt.map(|vi| m.tex_coords[vi]), ()))
     }
-    pub fn edges(&self) -> Face<Edge> {
+    pub fn edges(&self) -> [Edge; 3] {
         let [vi0, vi1, vi2] = self.v;
-        Face {
-            verts: [
-                Edge::new(vi0, vi1),
-                Edge::new(vi1, vi2),
-                Edge::new(vi0, vi2),
-            ],
-        }
+        [
+            Edge::new(vi0, vi1),
+            Edge::new(vi1, vi2),
+            Edge::new(vi0, vi2),
+        ]
     }
 }
 
@@ -196,6 +202,7 @@ impl Mesh {
             let vis = self.faces[i];
             let t = Triangle::new(vis.map(|vi| self.verts[vi]), ());
             let n = t.normal();
+            // TODO possibly apply a weighting based on triangle face area?
             for vi in vis {
                 self.normals[vi] += n;
             }
@@ -386,7 +393,6 @@ impl Mesh {
     pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         self.face(i)
             .edges()
-            .verts
             .into_iter()
             .filter_map(move |e| match self.edge_face[&e] {
                 EdgeShareKind::Boundary(o) => {
@@ -492,37 +498,41 @@ impl Mesh {
             *v /= scale;
         }
     }
-    /*
-    /// Returns the assignment of each location in a texture to a face.
-    /// If there are no texture coordinates for a mesh, returns an empty vec.
-    pub fn tex_faces(&self, w: u32, h: u32) -> Vec<Vec<u32>> {
-        if self.tex_coords.is_empty() {
-            return vec![];
-        }
-        let mut out = vec![vec![u32::MAX; w as usize]; h as usize];
+
+    /// Returns the uniform laplacian energy for this mesh.
+    pub fn uniform_laplacian(&self) -> SparseMatrix {
+        let mut out = SparseMatrix::new();
         for f in self.faces() {
-            let t = f.tex(&self).unwrap();
-            // simple approach, just scan through bounding box and see if it's inside the triangle
-            let aabb = t.aabb();
+            for e in f.edges() {
+                assert!(out.insert(e.0, 1.).is_none());
+                assert!(out.insert(e.flipped(), 1.).is_none());
+            }
+        }
+        for i in 0..self.verts.len() {
+            assert!(out.insert([i; 2], -1.).is_none());
         }
         out
     }
-    */
 
-    /*
-    // TODO before implementing this need to have some way to represent adjacencies.
-    pub fn laplacian_weights(&self, from: usize, to: usize) -> f32 {
-      if from == to {
-        todo!();
-      } else {
-        if self.edge_face.contains_key(&Edge::new(from, to)) {
-          1.
-        } else {
-          0.
+    /// Maps the boundary vertices of this mesh to the unit circle in R^2.
+    /// It computes their position based on winding and distance to previous vert on the
+    /// boundary.
+    pub fn map_boundary_verts_to_circle(&self) -> impl Iterator<Item = (usize, Vec2)> {
+        let bl = self.boundary_loop();
+        assert!(!bl.is_empty(), "Mesh has no cuts");
+        // here assumes that boundary edges are in order
+        let mut lens = vec![0.; bl.len()];
+        let v = &self.verts;
+        for ((i, &vi), &prev_vi) in bl.iter().enumerate().skip(1).zip(bl.iter()) {
+            lens[i] = lens[i - 1] + (v[vi] - v[prev_vi]).length();
         }
-      }
+        let total_len = lens.last().unwrap() + (v[bl[0]] - v[bl[bl.len() - 1]]).length();
+        bl.into_iter().enumerate().map(move |(i, bl)| {
+            let t = std::f32::consts::TAU * lens[i] / total_len;
+            let (s, c) = t.sin_cos();
+            (bl, Vector::new([c, s]))
+        })
     }
-    */
 }
 
 #[derive(Debug)]
