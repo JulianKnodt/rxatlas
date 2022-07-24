@@ -1,7 +1,7 @@
 use super::mesh::{Mesh, MeshFace};
 use super::{Vec3, Vector};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
 #[derive(Debug, Default)]
@@ -84,5 +84,28 @@ impl OFF {
             });
         }
         m
+    }
+    pub fn write(&self, mut dst: impl Write) -> io::Result<()> {
+        dst.write(b"OFF\n")?;
+        write!(dst, "{} {} {}\n", self.v.len(), self.f.len(), 0)?;
+        dst.write(b"# Vertices:\n")?;
+        for Vector([x, y, z]) in &self.v {
+            write!(dst, "{x} {y} {z}\n");
+        }
+        dst.write(b"# Faces:\n")?;
+        for [vi0, vi1, vi2] in &self.f {
+            write!(dst, "{vi0} {vi1} {vi2}\n");
+        }
+        Ok(())
+    }
+}
+
+impl Mesh {
+    /// Converts this mesh to an OFF format for serializing.
+    pub fn to_off(&self) -> OFF {
+        OFF {
+            v: self.verts.clone(),
+            f: self.faces.clone(),
+        }
     }
 }

@@ -1,14 +1,25 @@
 use super::bvh::BVH;
 use super::triangle::{Triangle, Triangle2, Triangle3};
 use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter;
 
+/// A bunch of type aliases for indexing into different stuff.
+/// Mostly to self-document code
+pub type VertIdx = usize;
+pub type VertNIdx = usize;
+pub type VertTIdx = usize;
+pub type FaceIdx = usize;
+pub type MatIdx = usize;
+
+/// An edge between two vertices or texture coordinates.
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
 pub struct Edge([usize; 2]);
 
 impl Edge {
+    #[inline]
     pub fn new(from: usize, to: usize) -> Self {
+        assert_ne!(from, to, "Cannot connect a vertex to itself");
         Edge([from.min(to), from.max(to)])
     }
 }
@@ -16,32 +27,36 @@ impl Edge {
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum EdgeShareKind {
     /// A boundary edge, only used by a single face
-    Boundary(usize),
+    Boundary(FaceIdx),
     /// A edge that is shared between two faces,
     /// in no particular order.
-    Shared(usize, usize),
+    Shared(FaceIdx, FaceIdx),
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
 pub struct MeshFace {
-    pub v: [usize; 3],
-    pub vn: Option<[usize; 3]>,
-    pub vt: Option<[usize; 3]>,
-    pub mat: Option<usize>,
+    pub v: [VertIdx; 3],
+    pub vn: Option<[VertNIdx; 3]>,
+    pub vt: Option<[VertNIdx; 3]>,
+
+    pub mat: Option<MatIdx>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct Mesh {
+    // easy to check if two vertices are adjacent, hard to find
+    // adjacent vertices. Maybe need to rethink this?
     edge_face: HashMap<Edge, EdgeShareKind>,
+
     tex_edge_face: HashMap<Edge, EdgeShareKind>,
 
     pub verts: Vec<Vec3>,
     pub normals: Vec<Vec3>,
     pub tex_coords: Vec<Vec2>,
 
-    faces: Vec<[usize; 3]>,
-    face_normals: Vec<[usize; 3]>,
-    face_textures: Vec<[usize; 3]>,
+    pub faces: Vec<[VertIdx; 3]>,
+    face_normals: Vec<[VertNIdx; 3]>,
+    face_textures: Vec<[VertTIdx; 3]>,
 
     // TODO this is one per face, but it can be much more compressed (ranges)
     mats: Vec<usize>,
@@ -96,23 +111,32 @@ impl Mesh {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn add_vert(&mut self, v: Vec3, n: Vec3, tex: Vec2) {
-        self.verts.push(v);
-        self.normals.push(n);
-        self.tex_coords.push(tex);
-    }
-    pub fn add_edges(&mut self, v: [usize; 3]) {
-        self.add_face(MeshFace {
-            v,
-            vn: None,
-            vt: None,
-            mat: None,
-        });
+    pub fn add_vertex(
+        &mut self,
+        v: Vec3,
+        n: Option<Vec3>,
+        tex: Option<Vec2>,
+    ) -> (VertIdx, Option<VertNIdx>, Option<VertTIdx>) {
+        let push_w_idx = |to: &mut Vec<_>, v| {
+            let idx = to.len();
+            to.push(v);
+            idx
+        };
+        let push_w_idx2 = |to: &mut Vec<_>, v| {
+            let idx = to.len();
+            to.push(v);
+            idx
+        };
+        (
+            push_w_idx(&mut self.verts, v),
+            n.map(|n| push_w_idx(&mut self.normals, n)),
+            tex.map(|n| push_w_idx2(&mut self.tex_coords, n)),
+        )
     }
 
     /// Adds a mesh face into this mesh
     /// panicking if it has a texture and some vertices do but others do not.
-    pub fn add_face(&mut self, f: MeshFace) {
+    pub fn add_face(&mut self, f: MeshFace) -> usize {
         let fi = self.faces.len();
         let MeshFace { v, vt, vn, mat } = f;
         self.faces.push(v);
@@ -159,6 +183,7 @@ impl Mesh {
                     .or_insert(EdgeShareKind::Boundary(fi));
             }
         }
+        fi
     }
 
     /// Sets each vertex to the average of each of its face normals.
@@ -195,7 +220,7 @@ impl Mesh {
         }
     }
 
-    /// Finds all verts at the same location of all verts using a bvh
+    /// [WIP] Finds all verts at the same location of all verts using a bvh
     pub fn colocated_verts_bvh(&self) -> impl Iterator<Item = usize> {
         todo!();
         [].into_iter()
@@ -247,6 +272,52 @@ impl Mesh {
             .copied()
     }
 
+    pub fn boundary_loop(&self) -> Vec<usize> {
+        let mut boundary_edges_map = HashMap::new();
+        let mut unseen = BTreeSet::new();
+        for Edge([v0, v1]) in self.boundary_edges() {
+            boundary_edges_map
+                .entry(v0)
+                .and_modify(|pv: &mut Result<(usize, usize), usize>| {
+                    *pv = Ok((pv.unwrap_err(), v1))
+                })
+                .or_insert(Err(v1));
+            boundary_edges_map
+                .entry(v1)
+                .and_modify(|pv: &mut Result<(usize, usize), usize>| {
+                    *pv = Ok((v0, pv.unwrap_err()))
+                })
+                .or_insert(Err(v0));
+
+            unseen.insert(v0);
+            unseen.insert(v1);
+        }
+        let mut best = vec![];
+        while let Some(first) = unseen.pop_first() {
+            let mut v = first;
+            let mut curr = vec![v];
+            loop {
+                let (n0, n1) = boundary_edges_map[&v].unwrap();
+                v = if unseen.remove(&n0) {
+                    n0
+                } else if unseen.remove(&n1) {
+                    n1
+                } else if n0 == first || n1 == first {
+                    // saw both vertices, and one of them was the first vertex we ever saw
+                    break;
+                } else {
+                    panic!("Already saw both vertices but the loop hasn't ended?");
+                };
+                curr.push(v);
+            }
+            if curr.len() > best.len() {
+                best = curr;
+            }
+        }
+        best
+    }
+
+    /// Texture boundary edges. If there are no textures, will return an empty iterator.
     pub fn tex_boundary_edges(&self) -> impl Iterator<Item = Edge> + '_ {
         self.tex_edge_face
             .iter()
@@ -254,6 +325,41 @@ impl Mesh {
             .map(|(k, v)| k)
             .copied()
     }
+
+    /*
+    /// Cuts this mesh along some number of edges.
+    /// This will produce two distinct components with overlapping vertices.
+    ///
+    /// The caller should ensure that the edges form a cycle on the mesh.
+    pub fn cut<'a>(&mut self, edges: impl IntoIterator<Item = &'a Edge>) {
+        let edges = edges.into_iter();
+        let mut duplicated_verts: HashMap<usize, usize> = HashMap::new();
+        // Steps:
+        // 2. For each face on the cut, find the face which lies on one side of the cut
+        // 3. assign each of its edge to the new vertices.
+        for e @ &Edge([a, b]) in edges {
+            let face_idx = match self.edge_face[e] {
+                EdgeShareKind::Boundary(..) => panic!("Cannot cut across a boundary edge"),
+                EdgeShareKind::Shared(l_face, r_face) => {
+                    // TODO find a way to check which face to keep
+                    l_face
+                }
+            };
+            let mut new_face = self.face(new_face_idx);
+
+            // TODO need to iterate over each vertex and check to see if it is a or b,
+            // and clone texture, normals, etc.
+            for (i, &v) in new_face.v.iter().enumerate() {
+                if v == a || v == b {
+                    let (vi, ni, ti) = self.add_vertex(v, new_face.vn.get(i), new_face.vt.get(i));
+                    new_face.v[i] = vi;
+                    new_face.vn[i] = ni;
+                    new_face.vt[i] = ti;
+                }
+            }
+        }
+    }
+    */
 
     pub fn is_boundary_edge(&self, e: &Edge) -> Option<bool> {
         self.edge_face
@@ -318,9 +424,11 @@ impl Mesh {
     }
 
     /// Returns whether this mesh has vertex normals
+    #[inline]
     pub fn has_vertex_normals(&self) -> bool {
         !self.face_normals.is_empty() && !self.normals.is_empty()
     }
+
     /// Iterator over texture locations, correspoding to a face, and barycentric
     /// coordinate, corresponding to a pixel in an image with a given width and height.
     ///
@@ -483,3 +591,16 @@ impl Surface for Mesh {
         out
     }
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct SimpleMesh<'a> {
+    verts: &'a [Vec3],
+    faces: &'a [[VertIdx; 3]],
+}
+
+/// Tutte Parameterization of a mesh
+pub mod tutte;
+
+/// Method for converting this representation designed for rendering to a half-edge mesh
+/// for geometry processing.
+pub mod half_edge;
