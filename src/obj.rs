@@ -285,8 +285,8 @@ impl ObjObject {
         let mut m = Mesh::new();
         let ObjObject { v, vt, vn, f } = self;
         m.verts.extend(v);
-        m.tex_coords.extend(vt);
         m.normals.extend(vn);
+        m.tex_coords.extend(vt);
         // here we want to check if all the verts have a texture, or if none of them have a
         // texture. Do not allow for intermediate states?
         for f in f.into_iter() {

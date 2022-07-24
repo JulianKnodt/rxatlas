@@ -1,8 +1,9 @@
 #![feature(let_else)]
+#![feature(map_first_last)]
 #![allow(unused)]
 use std::array::from_fn;
 use std::cmp::Ordering;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 
 mod bvh;
 pub mod point_vis;
@@ -51,7 +52,7 @@ impl<const N: usize> Vector<N> {
         (*self - *o).length() < eps
     }
     pub fn clamp(&self, min: f32, max: f32) -> Self {
-        Self(from_fn(|i| self.0[i].min(max).max(min)))
+        Self(from_fn(|i| self[i].min(max).max(min)))
     }
     #[inline]
     pub fn is_finite(&self) -> bool {
@@ -79,15 +80,15 @@ impl<const N: usize> Vector<N> {
 
 impl<const N: usize, T: PartialOrd + Copy> Vector<N, T> {
     pub fn min(&self, o: &Self) -> Self {
-        Self(from_fn(|dim| match self.0[dim].partial_cmp(&o.0[dim]) {
-            None | Some(Ordering::Less) | Some(Ordering::Equal) => self.0[dim],
-            Some(Ordering::Greater) => o.0[dim],
+        Self(from_fn(|dim| match self[dim].partial_cmp(&o[dim]) {
+            None | Some(Ordering::Less) | Some(Ordering::Equal) => self[dim],
+            Some(Ordering::Greater) => o[dim],
         }))
     }
     pub fn max(&self, o: &Self) -> Self {
-        Self(from_fn(|dim| match self.0[dim].partial_cmp(&o.0[dim]) {
-            None | Some(Ordering::Greater) | Some(Ordering::Equal) => self.0[dim],
-            Some(Ordering::Less) => o.0[dim],
+        Self(from_fn(|dim| match self[dim].partial_cmp(&o[dim]) {
+            None | Some(Ordering::Greater) | Some(Ordering::Equal) => self[dim],
+            Some(Ordering::Less) => o[dim],
         }))
     }
 }
@@ -95,19 +96,19 @@ impl<const N: usize, T: PartialOrd + Copy> Vector<N, T> {
 impl<T: Copy> Vec2<T> {
     #[inline]
     pub fn x(&self) -> T {
-        self.0[0]
+        self[0]
     }
     #[inline]
     pub fn y(&self) -> T {
-        self.0[1]
+        self[1]
     }
     #[inline]
     pub fn u(&self) -> T {
-        self.0[0]
+        self[0]
     }
     #[inline]
     pub fn v(&self) -> T {
-        self.0[1]
+        self[1]
     }
 }
 
@@ -129,26 +130,26 @@ impl Vec2 {
     /// If parallel, may return NaN.
     pub fn line_intersects(a: Vec2, b: Vec2, dim: usize, val: f32) -> f32 {
         assert!(dim <= 1, "Only two valid dimensions");
-        (val - b.0[dim]) / a.0[dim]
+        (val - b[dim]) / a[dim]
     }
 }
 
 impl Vec3 {
     #[inline]
     pub fn xy(&self) -> Vec2 {
-        Vector([self.0[0], self.0[1]])
+        Vector([self[0], self[1]])
     }
     #[inline]
     pub fn x(&self) -> f32 {
-        self.0[0]
+        self[0]
     }
     #[inline]
     pub fn y(&self) -> f32 {
-        self.0[1]
+        self[1]
     }
     #[inline]
     pub fn z(&self) -> f32 {
-        self.0[2]
+        self[2]
     }
 
     #[inline]
@@ -222,6 +223,22 @@ impl<const N: usize> std::ops::Neg for Vector<N> {
         Self(from_fn(|i| -self.0[i]))
     }
 }
+
+impl<const N: usize, T> Index<usize> for Vector<N, T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+impl<const N: usize, T> IndexMut<usize> for Vector<N, T> {
+    #[inline]
+    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
+        &mut self.0[i]
+    }
+}
+
 impl Default for Vec3 {
     fn default() -> Self {
         Vector([0.; 3])
@@ -745,6 +762,7 @@ pub trait Surface {
 }
 
 pub mod obj;
+pub mod off;
 
 /// A ray with an origin, direction, and a length
 #[derive(Debug, Clone, PartialEq)]
@@ -787,3 +805,5 @@ pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32
     let t = f * e1.dot(&q);
     Some(t).filter(|t| *t > eps)
 }
+
+pub mod linalg;
