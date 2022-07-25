@@ -14,6 +14,8 @@ pub mod triangle;
 pub struct Vector<const N: usize, T = f32>(pub [T; N]);
 pub type Vec2<T = f32> = Vector<2, T>;
 pub type Vec3<T = f32> = Vector<3, T>;
+pub type Vec4<T = f32> = Vector<4, T>;
+
 impl<const N: usize, T> Vector<N, T> {
     pub fn new(v: [T; N]) -> Self {
         Self(v)
@@ -164,6 +166,63 @@ impl Vec3 {
         let &Vector([x, y, z]) = self;
         let &Vector([a, b, c]) = o;
         Self([y * c - z * b, z * a - x * c, x * b - y * a])
+    }
+
+    /// Returns the simplest rotation of this vector to another vector
+    /// as a quaternion.
+    #[inline]
+    pub fn rotation_to(&self, o: &Self) -> Vec4 {
+        let Vector([x, y, z]) = self.cross(o);
+        let w = (self.length_sq() * o.length_sq()).sqrt() + self.dot(o);
+        let out = Vector::new([x, y, z, w]).normalize();
+        out
+    }
+    #[inline]
+    pub fn apply_quat(&self, o: &Vec4) -> Vec3 {
+        o.hamilton_prod(&self.to_quat()).hamilton_prod(&o.conjugate()).xyz()
+    }
+    #[inline]
+    pub fn to_quat(&self) -> Vec4 {
+        let &Vector([x, y, z]) = self;
+        Vector([x, y, z, 0.])
+    }
+}
+
+#[test]
+fn test_quat() {
+    let a = Vec3::new([0., 1., 0.]);
+    const POS_Z: Vector<3, f32> = Vector([0., 0., 1.]);
+    let rot = a.rotation_to(&POS_Z);
+    let out = a.apply_quat(&rot);
+    assert!((out - POS_Z).length() < 1e-4, "{:?}", out);
+}
+
+impl Vec4 {
+    #[inline]
+    pub fn conjugate(&self) -> Vec4 {
+        let &Vector([x, y, z, w]) = self;
+        Vector([-x, -y, -z, w])
+    }
+    #[inline]
+    pub fn inverse(&self) -> Vec4 {
+        self.conjugate().normalize()
+    }
+
+    pub fn hamilton_prod(&self, o: &Self) -> Vec4 {
+        let Vector([b1, c1, d1, a1]) = self;
+        let Vector([b2, c2, d2, a2]) = o;
+        Vector::new([
+            a1 * b2 + b1 * a2 + c1 * d2 - d1 * c2,
+            a1 * c2 - b1 * d2 + c1 * a2 + d1 * b2,
+            a1 * d2 + b1 * c2 - c1 * b2 + d1 * a2,
+
+            a1 * a2 - b1 * b2 - c1 * c2 - d1 * d2,
+        ])
+    }
+    #[inline]
+    pub fn xyz(&self) -> Vec3 {
+        let &Vector([x,y,z,_]) = self;
+        Vector([x,y,z])
     }
 }
 
@@ -340,6 +399,19 @@ impl AABB2 {
                 || (y_min <= self.max.y() && self.max.y() <= y_min)
         };
         edge_intersects(v1, v0) || edge_intersects(v2, v1) || edge_intersects(v2, v0)
+    }
+
+    /// Returns quasi random samples within this AABB2.
+    #[inline]
+    pub fn quasi_random_samples(&self, samples_per_dim: usize) -> impl Iterator<Item = Vec2> + '_ {
+        let extent = self.extent();
+        rand::quasi_random_iter()
+            .take(samples_per_dim)
+            .flat_map(move |x| {
+                rand::quasi_random_iter()
+                    .take(samples_per_dim)
+                    .map(move |y| self.min + Vector::new([x, y]) * extent)
+            })
     }
 }
 

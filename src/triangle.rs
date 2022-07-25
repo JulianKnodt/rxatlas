@@ -71,7 +71,7 @@ impl<T> Triangle3<T> {
     #[inline]
     pub fn normal(&self) -> Vec3 {
         let &[v0, v1, v2] = &self.verts;
-        (v1 - v0).cross(&(v2 - v0))
+        (v1 - v0).cross(&(v2 - v0)).normalize()
     }
     #[inline]
     pub fn area(&self) -> f32 {
