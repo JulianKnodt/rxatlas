@@ -1,4 +1,4 @@
-use super::Vector;
+use super::{Vec2, Vector};
 
 #[inline]
 /// Shitty randomizer for values in [0,1]
@@ -16,4 +16,13 @@ pub fn rand(seed: f32) -> f32 {
 /// Returns a random vector with all elements in [0,1].
 pub fn rand_vec<const N: usize>() -> Vector<N> {
     Vector(std::array::from_fn(|i| rand(i as f32)))
+}
+
+#[inline]
+/// Returns a random position within the unit circle [-1, 1]
+pub fn rand_unit_circle() -> Vec2 {
+    let l = rand(0.1).sqrt();
+    let theta = 2.0 * std::f32::consts::PI * rand(1.0);
+    let (s, c) = theta.sin_cos();
+    Vec2::new([l * c, l * s])
 }

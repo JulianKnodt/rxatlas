@@ -1,7 +1,6 @@
 #![feature(let_else)]
 use clap::Parser;
-use image::{self, GenericImageView, ImageBuffer, Rgba};
-use rxatlas::{obj, point_vis::PointVisualizer, Ray, Surface, Vector};
+use rxatlas::{obj, point_vis::PointVisualizer};
 
 /// Creates a tutte parameterization of a mesh.
 #[derive(Parser, Debug)]

@@ -355,6 +355,15 @@ impl<T: PartialOrd + Copy> AABB2<T> {
     }
 }
 
+impl AABB {
+    /// Computes the surface area of this AABB.
+    #[inline]
+    pub fn area(&self) -> f32 {
+        let Vector([x, y, z]) = self.extent();
+        2. * (x * y + y * z + z * x)
+    }
+}
+
 impl<const N: usize, T: PartialOrd + Copy> Extent<N, T> {
     #[inline]
     pub fn new(a: Vector<N, T>, b: Vector<N, T>) -> Self {
