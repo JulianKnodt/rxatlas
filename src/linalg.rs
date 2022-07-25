@@ -2,6 +2,11 @@ use super::Vector;
 use std::array::from_fn;
 use std::collections::BTreeMap;
 
+pub trait Tensor2D {
+    fn get(&self, x: u32, y: u32) -> f32;
+    fn set(&mut self, x: u32, y: u32, v: f32);
+}
+
 // TODO add another parameter for col/rows
 pub type Matrix<const N: usize> = [Vector<N>; N];
 // TODO need to implement some kind of solver, what are the exact input and output
@@ -11,7 +16,7 @@ pub type Matrix<const N: usize> = [Vector<N>; N];
 pub fn eye<const N: usize>() -> Matrix<N> {
     from_fn(|i| {
         let mut row = Vector::zero();
-        row.0[i] = 1.;
+        row[i] = 1.;
         row
     })
 }
@@ -30,7 +35,7 @@ pub fn matmul<const N: usize>(a: &Matrix<N>, b: &Matrix<N>) -> Matrix<N> {
         for j in 0..N {
             // TODO I think this can be "vectorized" better?
             for k in 0..N {
-                out[i].0[j] += a[i].0[k] * b[k].0[j];
+                out[i][j] += a[i][k] * b[k][j];
             }
         }
     }
@@ -46,7 +51,7 @@ pub fn vecmul<const N: usize>(a: &Matrix<N>, b: &Vector<N>) -> Vector<N> {
 fn is_lower_triangular<const N: usize>(m: &Matrix<N>) -> bool {
     for y in 0..N {
         for x in y + 1..N {
-            if m[y].0[x] != 0. {
+            if m[y][x] != 0. {
                 return false;
             }
         }
@@ -147,4 +152,39 @@ fn test_simple_lu() {
 }
 
 /// A sparse matrix is represented as a btree that maps coordinates to floats.
-pub type SparseMatrix<T = f32> = BTreeMap<[usize; 2], T>;
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SparseMatrix<T = f32> {
+    data: BTreeMap<usize, BTreeMap<usize, T>>,
+    shape: [usize; 2],
+}
+
+impl<T> SparseMatrix<T> {
+    pub fn new(shape: [usize; 2]) -> Self {
+        Self {
+            data: BTreeMap::new(),
+            shape,
+        }
+    }
+    pub fn insert(&mut self, [x, y]: [usize; 2], v: T) -> Option<T> {
+        let [xu, yu] = self.shape;
+        if x >= xu || y >= yu {
+            return None;
+        }
+        self.data
+            .entry(y)
+            .or_insert_with(BTreeMap::new)
+            .insert(x, v)
+    }
+}
+
+impl Tensor2D for SparseMatrix<f32> {
+    #[inline]
+    fn get(&self, x: u32, y: u32) -> f32 {
+        self.data[&(y as usize)][&(x as usize)]
+    }
+
+    #[inline]
+    fn set(&mut self, x: u32, y: u32, v: f32) {
+        self.insert([x as usize, y as usize], v);
+    }
+}

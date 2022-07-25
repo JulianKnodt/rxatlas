@@ -46,7 +46,14 @@ impl<const N: usize> Vector<N> {
         self.dot(self).sqrt()
     }
     pub fn normalize(&self) -> Self {
-        (*self) / (self.length() + 1e-6)
+        (*self) / (self.length() + 1e-10)
+    }
+    pub fn clamp_normalize(&self) -> Self {
+        let len = self.length();
+        if len <= 1. {
+            return *self;
+        }
+        (*self) / (len + 1e-10)
     }
     pub fn approx_equals(&self, o: &Self, eps: f32) -> bool {
         (*self - *o).length() < eps

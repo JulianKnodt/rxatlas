@@ -1,6 +1,6 @@
 /// Small tool for visualizing a set of 2D points.
 use super::{Vec2, Vector};
-use image::{DynamicImage, GenericImage, ImageBuffer, Rgba};
+use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Rgba};
 
 #[derive(Debug)]
 pub struct PointVisualizer {
@@ -23,11 +23,12 @@ impl PointVisualizer {
         let coord = p * Vector([511., 511.]);
         for x in -1..=1 {
             for y in -1..=1 {
-                self.img.put_pixel(
-                    (coord.x() + x as f32) as u32,
-                    (coord.y() + y as f32) as u32,
-                    Rgba([r, g, b, 0]),
-                );
+                let fx = (coord.x() + x as f32) as u32;
+                let fy = (coord.y() + y as f32) as u32;
+                if !self.img.in_bounds(fx, fy) {
+                    continue;
+                }
+                self.img.put_pixel(fx, fy, Rgba([r, g, b, 255]));
             }
         }
     }

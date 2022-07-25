@@ -387,9 +387,11 @@ impl Mesh {
             .map(|i| self.face(i).pos(self).area().abs())
             .sum()
     }
+    /// Returns the total average over all vertices.
     pub fn centroid(&self) -> Vec3 {
         super::centroid(&self.verts)
     }
+    /// Returns adjacent faces for face `i`.
     pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         self.face(i)
             .edges()
@@ -501,7 +503,7 @@ impl Mesh {
 
     /// Returns the uniform laplacian energy for this mesh.
     pub fn uniform_laplacian(&self) -> SparseMatrix {
-        let mut out = SparseMatrix::new();
+        let mut out = SparseMatrix::new([self.verts.len(); 2]);
         for f in self.faces() {
             for e in f.edges() {
                 assert!(out.insert(e.0, 1.).is_none());
@@ -510,6 +512,30 @@ impl Mesh {
         }
         for i in 0..self.verts.len() {
             assert!(out.insert([i; 2], -1.).is_none());
+        }
+        out
+    }
+
+    /// Adjacency Count is #adj verts for each vert, not including itself.
+    pub fn adjacency_counts(&self) -> Vec<usize> {
+        let mut out = vec![0; self.verts.len()];
+        for f in self.faces() {
+            for Edge([vi0, vi1]) in f.edges() {
+                assert_ne!(vi0, vi1);
+                out[vi0] += 1;
+                out[vi1] += 1;
+            }
+        }
+        out
+    }
+    /// Returns a matrix which has 1 for adjacent vertices, and 0 otherwise.
+    pub fn adjacency_matrix(&self) -> SparseMatrix {
+        let mut out = SparseMatrix::new([self.verts.len(); 2]);
+        for f in self.faces() {
+            for e in f.edges() {
+                assert!(out.insert(e.0, 1.).is_none());
+                assert!(out.insert(e.flipped(), 1.).is_none());
+            }
         }
         out
     }
