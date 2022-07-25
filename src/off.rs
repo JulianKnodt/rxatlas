@@ -87,14 +87,14 @@ impl OFF {
     }
     pub fn write(&self, mut dst: impl Write) -> io::Result<()> {
         dst.write(b"OFF\n")?;
-        write!(dst, "{} {} {}\n", self.v.len(), self.f.len(), 0)?;
+        writeln!(dst, "{} {} {}", self.v.len(), self.f.len(), 0)?;
         dst.write(b"# Vertices:\n")?;
         for Vector([x, y, z]) in &self.v {
-            write!(dst, "{x} {y} {z}\n");
+            writeln!(dst, "{x} {y} {z}");
         }
         dst.write(b"# Faces:\n")?;
         for [vi0, vi1, vi2] in &self.f {
-            write!(dst, "{vi0} {vi1} {vi2}\n");
+            writeln!(dst, "{vi0} {vi1} {vi2}");
         }
         Ok(())
     }

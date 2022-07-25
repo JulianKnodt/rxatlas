@@ -243,7 +243,7 @@ impl MTL {
                 .expect("Failed to save texture_kd.png");
             dst.write(b"map_kd texture_kd.png\n")?;
         } else {
-            write!(dst, "Kd {} {} {}\n", self.kd.x(), self.kd.y(), self.kd.z())?;
+            writeln!(dst, "Kd {} {} {}", self.kd.x(), self.kd.y(), self.kd.z())?;
         }
 
         if let Some(map_ks) = &self.map_ks {
@@ -252,7 +252,7 @@ impl MTL {
                 .expect("Failed to save texture_ks.png");
             dst.write(b"map_ks texture_ks.png\n")?;
         } else {
-            write!(dst, "Ks {} {} {}\n", self.ks.x(), self.ks.y(), self.ks.z())?;
+            writeln!(dst, "Ks {} {} {}", self.ks.x(), self.ks.y(), self.ks.z())?;
         }
 
         if let Some(map_ka) = &self.map_ka {
@@ -261,7 +261,7 @@ impl MTL {
                 .expect("Failed to save texture_ka.png");
             dst.write(b"map_ka texture_ka.png\n")?;
         } else {
-            write!(dst, "Ka {} {} {}\n", self.ka.x(), self.ka.y(), self.ka.z())?;
+            writeln!(dst, "Ka {} {} {}", self.ka.x(), self.ka.y(), self.ka.z())?;
         }
 
         if let Some(bump_normal) = &self.bump_normal {
@@ -301,17 +301,17 @@ impl ObjObject {
 
         for v in &self.v {
             let Vector([x, y, z]) = v;
-            write!(dst, "v {x} {y} {z}\n")?;
+            writeln!(dst, "v {x} {y} {z}")?;
         }
 
         for vt in &self.vt {
             let Vector([u, v]) = vt;
-            write!(dst, "vt {u} {v}\n")?;
+            writeln!(dst, "vt {u} {v}")?;
         }
 
         for vn in &self.vn {
             let Vector([x, y, z]) = vn;
-            write!(dst, "vn {x} {y} {z}\n")?;
+            writeln!(dst, "vn {x} {y} {z}")?;
         }
 
         dst.write(b"s 1\n")?;
@@ -325,11 +325,11 @@ impl ObjObject {
                 f.vt.map(|vt| vt.map(|vt| vt + 1)),
                 f.vn.map(|vn| vn.map(|vn| vn + 1)),
             ) {
-                (None, None) => write!(dst, "{v0}// {v1}// {v2}//"),
-                (None, Some([vn0, vn1, vn2])) => write!(dst, "{v0}//{vn0} {v1}//{vn1} {v2}//{vn2}"),
-                (Some([vt0, vt1, vt2]), None) => write!(dst, "{v0}/{vt0}/ {v1}/{vt1}/ {v2}/{vt2}/"),
+                (None, None) => writeln!(dst, "{v0}// {v1}// {v2}//"),
+                (None, Some([vn0, vn1, vn2])) => writeln!(dst, "{v0}//{vn0} {v1}//{vn1} {v2}//{vn2}"),
+                (Some([vt0, vt1, vt2]), None) => writeln!(dst, "{v0}/{vt0}/ {v1}/{vt1}/ {v2}/{vt2}/"),
                 (Some([vt0, vt1, vt2]), Some([vn0, vn1, vn2])) => {
-                    write!(dst, "{v0}/{vt0}/{vn0} {v1}/{vt1}/{vn1} {v2}/{vt2}/{vn2}")
+                    writeln!(dst, "{v0}/{vt0}/{vn0} {v1}/{vt1}/{vn1} {v2}/{vt2}/{vn2}")
                 }
             }?;
             dst.write(b"\n");

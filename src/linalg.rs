@@ -85,7 +85,7 @@ pub struct LUDecomposition<const N: usize> {
 /// Performs an LU decomposition of this matrix, such that L is lower triangular, U is upper
 /// triangular, and `LU = mat`.
 pub fn lu<const N: usize>(mat: &Matrix<N>) -> Option<LUDecomposition<N>> {
-    let mut l = mat.clone();
+    let mut l = *mat;
     let mut u = eye();
 
     // for each element along the diagonal except the last one

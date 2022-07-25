@@ -163,42 +163,49 @@ impl<'a> BVH<'a> {
         (axis, split_pos)
     }
 
+    fn evaluate_sah_cost(&self, node: &BVHNode, axis: usize, pos: f32) -> f32 {
+        let mut left_box = AABB::empty();
+        let mut right_box = AABB::empty();
+        let mut left_count = 0;
+        let mut right_count = 0;
+
+        let fp = node.first_prim();
+
+        for i in fp..fp + node.num_prims {
+            let ps = self.mesh.face(self.tris[i]).pos(self.mesh).verts;
+            let c = self.centroids[i];
+            if c[axis] < pos {
+                for p in ps {
+                    left_box.add_point(&p);
+                }
+                left_count += 1;
+            } else {
+                for p in ps {
+                    right_box.add_point(&p);
+                }
+                right_count += 1;
+            }
+        }
+        let cost =
+            (left_count as f32) * left_box.area() + (right_count as f32) * right_box.area();
+        if !cost.is_normal() {
+            return f32::INFINITY;
+        }
+        assert!(cost >= 0.0);
+        cost
+    }
+
     /// Surface Area Heuristic (SAH) split of the node, may make constructing a BVH slower
     /// But should make intersection better
     #[inline]
-    fn sah_split(&self, node: &BVHNode) -> (f32, usize, f32) {
-        let evaluate_sah = |axis, pos| {
-            let mut left_box = AABB::empty();
-            let mut right_box = AABB::empty();
-            let mut left_count = 0;
-            let mut right_count = 0;
-
-            let fp = node.first_prim();
-
-            for i in fp..fp + node.num_prims {
-                let ps = self.mesh.face(self.tris[i]).pos(self.mesh).verts;
-                let c = self.centroids[i];
-                if c[axis] < pos {
-                    for p in ps {
-                        left_box.add_point(&p);
-                    }
-                    left_count += 1;
-                } else {
-                    for p in ps {
-                        right_box.add_point(&p);
-                    }
-                    right_count += 1;
-                }
-            }
-            let cost =
-                (left_count as f32) * left_box.area() + (right_count as f32) * right_box.area();
-            if !cost.is_normal() {
-                return f32::INFINITY;
-            }
-            assert!(cost >= 0.0);
-            cost
+    fn sah_exhaustive_split(&self, node: &BVHNode, best_axis: bool) -> (f32, usize, f32) {
+        let range = if best_axis {
+            let dim = node.aabb.largest_dimension().0;
+            (dim..dim+1)
+        } else {
+            (0..3)
         };
-        let (cost, axis, pos) = (0..3)
+        let (cost, axis, pos) = range
             .map(|axis| {
                 let fp = node.first_prim();
                 assert_ne!(node.num_prims, 0);
@@ -206,7 +213,40 @@ impl<'a> BVH<'a> {
                     .map(|i| {
                         let tri_idx = &self.tris[i];
                         let pos = self.centroids[i][axis];
-                        (evaluate_sah(axis, pos), pos)
+                        (self.evaluate_sah_cost(node, axis, pos), pos)
+                    })
+                    .min_by(|(cost_a, _), (cost_b, _)| cost_a.total_cmp(cost_b))
+                    .unwrap();
+                (cost, axis, pos)
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .unwrap();
+        (cost, axis, pos)
+    }
+
+    /// Uses Surface Area Heuristic (SAH) linearly spaced through either all axes or just the
+    /// best axis in order to split each BVH node.
+    #[inline]
+    fn sah_linspace_split(&self, node: &BVHNode, n: usize, best_axis: bool) -> (f32, usize, f32) {
+        let mut aabb = AABB::empty();
+        let fp = node.first_prim();
+        for i in fp..fp + node.num_prims {
+            aabb.add_point(&self.centroids[i]);
+        }
+        let range = if best_axis {
+            let dim = aabb.largest_dimension().0;
+            (dim..dim+1)
+        } else {
+            (0..3)
+        };
+        let (cost, axis, pos) = range
+            .map(|axis| {
+                let extent = aabb.extent();
+                let (cost, pos) = (0..n)
+                    .map(|i| {
+                        let t = (i as f32)/(n as f32);
+                        let pos = aabb.min[axis] + extent[axis] * t;
+                        (self.evaluate_sah_cost(node, axis, pos), pos)
                     })
                     .min_by(|(cost_a, _), (cost_b, _)| cost_a.total_cmp(cost_b))
                     .unwrap();
@@ -224,7 +264,7 @@ impl<'a> BVH<'a> {
             // stop if 2 or fewer triangles
             return;
         }
-        let (cost, axis, split_pos) = self.sah_split(node);
+        let (cost, axis, split_pos) = self.sah_linspace_split(node, 128, false);
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
         if cost >= parent_cost {
             return;

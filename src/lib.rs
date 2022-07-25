@@ -174,8 +174,7 @@ impl Vec3 {
     pub fn rotation_to(&self, o: &Self) -> Vec4 {
         let Vector([x, y, z]) = self.cross(o);
         let w = (self.length_sq() * o.length_sq()).sqrt() + self.dot(o);
-        let out = Vector::new([x, y, z, w]).normalize();
-        out
+        Vector::new([x, y, z, w]).normalize()
     }
     #[inline]
     pub fn apply_quat(&self, o: &Vec4) -> Vec3 {
