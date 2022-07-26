@@ -1,4 +1,4 @@
-use super::{Vec2, Vector};
+use super::{Vec2, Vec3, Vector};
 
 #[inline]
 /// Shitty randomizer for values in [0,1]
@@ -39,4 +39,21 @@ pub fn quasi_random_iter() -> impl Iterator<Item = f32> {
             v
         }
     })
+}
+
+// https://alexanderameye.github.io/notes/sampling-the-hemisphere/
+
+/// Returns a random uniform sample in the hemisphere around ([0,0,1])
+pub fn uniform_hemisphere(seed: f32) -> Vec3 {
+    let theta = rand(seed).acos();
+    let phi = 2.0 * std::f32::consts::PI * rand(seed);
+    Vector([theta, phi]).elaz_to_xyz()
+}
+
+#[test]
+fn test_uniform_hemisphere() {
+    for i in 0..100 {
+        let v = uniform_hemisphere(i as f32);
+        assert!(v.z() >= 0.);
+    }
 }

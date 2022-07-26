@@ -141,6 +141,13 @@ impl Vec2 {
         assert!(dim <= 1, "Only two valid dimensions");
         (val - b[dim]) / a[dim]
     }
+
+    pub fn elaz_to_xyz(&self) -> Vec3 {
+        let &Vector([el, az]) = self;
+        let (els, elc) = el.sin_cos();
+        let (azs, azc) = az.sin_cos();
+        Vector([azc * els, azs * els, elc])
+    }
 }
 
 impl Vec3 {
@@ -766,7 +773,9 @@ fn mesh_grid<const X: usize, const Y: usize>(min: Vec2, max: Vec2) -> [[Vec2; X]
     })
 }
 
+// Only run this test in release mode otherwise it blows up the stack.
 #[test]
+#[cfg(release)]
 fn test_point_in_triangle() {
     let mut pv = point_vis::PointVisualizer::new();
     let pts = mesh_grid::<100, 100>(Vector([0.25; 2]), Vector([0.75; 2]));
