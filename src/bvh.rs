@@ -186,8 +186,7 @@ impl<'a> BVH<'a> {
                 right_count += 1;
             }
         }
-        let cost =
-            (left_count as f32) * left_box.area() + (right_count as f32) * right_box.area();
+        let cost = (left_count as f32) * left_box.area() + (right_count as f32) * right_box.area();
         if !cost.is_normal() {
             return f32::INFINITY;
         }
@@ -201,7 +200,7 @@ impl<'a> BVH<'a> {
     fn sah_exhaustive_split(&self, node: &BVHNode, best_axis: bool) -> (f32, usize, f32) {
         let range = if best_axis {
             let dim = node.aabb.largest_dimension().0;
-            (dim..dim+1)
+            (dim..dim + 1)
         } else {
             (0..3)
         };
@@ -235,7 +234,7 @@ impl<'a> BVH<'a> {
         }
         let range = if best_axis {
             let dim = aabb.largest_dimension().0;
-            (dim..dim+1)
+            (dim..dim + 1)
         } else {
             (0..3)
         };
@@ -244,7 +243,7 @@ impl<'a> BVH<'a> {
                 let extent = aabb.extent();
                 let (cost, pos) = (0..n)
                     .map(|i| {
-                        let t = (i as f32)/(n as f32);
+                        let t = (i as f32) / (n as f32);
                         let pos = aabb.min[axis] + extent[axis] * t;
                         (self.evaluate_sah_cost(node, axis, pos), pos)
                     })

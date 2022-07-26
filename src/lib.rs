@@ -178,7 +178,9 @@ impl Vec3 {
     }
     #[inline]
     pub fn apply_quat(&self, o: &Vec4) -> Vec3 {
-        o.hamilton_prod(&self.to_quat()).hamilton_prod(&o.conjugate()).xyz()
+        o.hamilton_prod(&self.to_quat())
+            .hamilton_prod(&o.conjugate())
+            .xyz()
     }
     #[inline]
     pub fn to_quat(&self) -> Vec4 {
@@ -214,14 +216,13 @@ impl Vec4 {
             a1 * b2 + b1 * a2 + c1 * d2 - d1 * c2,
             a1 * c2 - b1 * d2 + c1 * a2 + d1 * b2,
             a1 * d2 + b1 * c2 - c1 * b2 + d1 * a2,
-
             a1 * a2 - b1 * b2 - c1 * c2 - d1 * d2,
         ])
     }
     #[inline]
     pub fn xyz(&self) -> Vec3 {
-        let &Vector([x,y,z,_]) = self;
-        Vector([x,y,z])
+        let &Vector([x, y, z, _]) = self;
+        Vector([x, y, z])
     }
 }
 

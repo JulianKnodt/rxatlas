@@ -168,7 +168,7 @@ impl Mesh {
                         *esk = EdgeShareKind::Shared(*i, fi);
                     }
                     EdgeShareKind::Shared(..) => {
-                        todo!("Handle more than 2 shared faces");
+                        eprintln!("TODO Handle non-manifold more than 2 shared faces");
                     }
                 })
                 .or_insert(EdgeShareKind::Boundary(fi));
@@ -183,7 +183,7 @@ impl Mesh {
                             *esk = EdgeShareKind::Shared(*i, fi);
                         }
                         EdgeShareKind::Shared(..) => {
-                            panic!("Edge shared by more than 2 triangles in 2D");
+                            eprintln!("Edge shared by more than 2 triangles in 2D");
                         }
                     })
                     .or_insert(EdgeShareKind::Boundary(fi));
@@ -464,18 +464,11 @@ impl Mesh {
                 let img_pix = pixel.to_f32() / v;
                 // try each corner, more reliable than midpoint.
                 let midpoint = img_pix.midpoint();
-                let (count_hits, pt_sum) = iter::once(midpoint)
+                let hit = iter::once(midpoint)
                     .chain(img_pix.corners().into_iter())
                     .filter(|&c| tex.contains(c))
-                    .map(|c| (1, c))
-                    .reduce(|(e0, c0), (e1, c1)| (e0 + e1, c0 + c1))?;
-                // TODO maybe return an iterator which filters items within the triangle?
-                assert_ne!(count_hits, 0);
-                Some((
-                    pixel.min,
-                    f_i,
-                    tex.barycentric_coord(pt_sum / (count_hits as f32)),
-                ))
+                    .next()?;
+                Some((pixel.min, f_i, tex.barycentric_coord(hit)))
             })
         });
         Some(iter)
