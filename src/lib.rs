@@ -17,7 +17,7 @@ pub type Vec3<T = f32> = Vector<3, T>;
 pub type Vec4<T = f32> = Vector<4, T>;
 
 impl<const N: usize, T> Vector<N, T> {
-    pub fn new(v: [T; N]) -> Self {
+    pub const fn new(v: [T; N]) -> Self {
         Self(v)
     }
 }
@@ -193,6 +193,11 @@ impl Vec3 {
     pub fn to_quat(&self) -> Vec4 {
         let &Vector([x, y, z]) = self;
         Vector([x, y, z, 0.])
+    }
+
+    #[inline]
+    pub fn to_basis(&self, basis: &[Vec3; 3]) -> Vec3 {
+        Vector(basis.map(|e| self.dot(&e)))
     }
 }
 

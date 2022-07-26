@@ -5,12 +5,6 @@
 use super::mesh::Mesh;
 use super::{intersect_tri, Intersection, Ray, Surface, Vec3, Vector, AABB};
 
-pub fn tri_aabb([p0, p1, p2]: &[Vec3; 3]) -> AABB {
-    let mut out = AABB::new(*p0, *p1);
-    out.add_point(p2);
-    out
-}
-
 /// Intersect a ray with an axis-aligned bounding box
 pub fn intersect_aabb(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> bool {
     let (tmin, tmax) = (0..3)
@@ -299,16 +293,16 @@ impl<'a> BVH<'a> {
                 let mut right_counts = [0; N];
                 let (mut left_aabb, mut right_aabb) = (AABB::empty(), AABB::empty());
                 let (mut left_sum, mut right_sum) = (0, 0);
-                for i in 0..N {
+                for i in 0..N - 1 {
                     left_sum += bins[i].tri_count;
                     left_counts[i] = left_sum;
                     left_aabb.add_extent(&bins[i].aabb);
                     left_areas[i] = left_aabb.area();
 
                     right_sum += bins[N - i - 1].tri_count;
-                    right_counts[N - i - 2] = right_sum;
+                    right_counts[N - i - 1] = right_sum;
                     right_aabb.add_extent(&bins[N - i - 1].aabb);
-                    right_areas[N - i - 2] = right_aabb.area();
+                    right_areas[N - i - 1] = right_aabb.area();
                 }
                 let scale = scale.recip();
                 let (cost, split_pos) = (0..N)
@@ -333,7 +327,7 @@ impl<'a> BVH<'a> {
             return;
         }
         // TODO have an enum for strategy to allow for choice of split at compile time.
-        let (cost, axis, split_pos) = self.sah_linspace_split(node, 128, false);
+        let (cost, axis, split_pos) = self.sah_linspace_split(node, 256, false);
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
 
         if cost >= parent_cost {
@@ -430,8 +424,8 @@ impl<'a> BVH<'a> {
         }
         if node.is_leaf() {
             for i in node.first_prim()..node.first_prim() + node.num_prims {
-                let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
-                if tri_aabb(tri).intersects(aabb) {
+                let tri = &self.mesh.face(self.tris[i]).pos(self.mesh);
+                if tri.aabb().intersects(aabb) {
                     // TODO this should be a reference to triangles somewhere else?
                     out.push(i);
                 }

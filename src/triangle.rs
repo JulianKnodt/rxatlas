@@ -1,4 +1,5 @@
 use super::{Extent, Vec2, Vec3, Vector};
+use std::array::from_fn;
 use std::ops::Add;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,6 +103,20 @@ impl<T> Triangle3<T> {
             .0
             .iter()
             .all(|&c| 0. <= c && c <= 1.)
+    }
+    /// Returns a basis of vectors
+    pub fn tbn(&self, uv: &Triangle2) -> [Vec3; 3] {
+        let &[v0, v1, v2] = &self.verts;
+        let e0 = v1 - v0;
+        let e1 = v2 - v1;
+
+        let &[uv0, uv1, uv2] = &uv.verts;
+        let duv0 = uv1 - uv0;
+        let duv1 = uv2 - uv0;
+        let f = duv0.cross(&duv1).recip();
+        let tan = Vector(from_fn(|dim| duv1.y() * e0[dim] - duv0.y() * e1[dim])) * f;
+        let bit = Vector(from_fn(|dim| -duv1.x() * e1[dim] + duv0.x() * e1[dim])) * f;
+        [tan.normalize(), bit.normalize(), self.normal()]
     }
 }
 

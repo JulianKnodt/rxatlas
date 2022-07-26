@@ -43,11 +43,23 @@ pub fn quasi_random_iter() -> impl Iterator<Item = f32> {
 
 // https://alexanderameye.github.io/notes/sampling-the-hemisphere/
 
-/// Returns a random uniform sample in the hemisphere around ([0,0,1])
+/// Returns a random uniform sample in the hemisphere around [0,0,1]
 pub fn uniform_hemisphere(seed: f32) -> Vec3 {
     let theta = rand(seed).acos();
     let phi = 2.0 * std::f32::consts::PI * rand(seed);
     Vector([theta, phi]).elaz_to_xyz()
+}
+
+#[inline]
+/// Returns a set of quasi random vectors in the unit hemisphere around [0,0,1].
+pub fn quasi_random_hemi(samples_per_dim: usize) -> impl Iterator<Item = Vec3> {
+    quasi_random_iter()
+        .take(samples_per_dim)
+        .flat_map(move |u| {
+            quasi_random_iter()
+                .take(samples_per_dim)
+                .map(move |v| Vector([u.acos(), 2.0 * std::f32::consts::PI * v]).elaz_to_xyz())
+        })
 }
 
 #[test]
