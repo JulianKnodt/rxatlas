@@ -240,7 +240,9 @@ impl MTL {
 
         if let Some(map_kd) = &self.map_kd {
             let name = format!("{name_prefix}_kd.png");
-            map_kd.save(&name).expect(&format!("Failed to save {name}"));
+            map_kd
+                .save(&name)
+                .unwrap_or_else(|_| panic!("Failed to save {name}"));
             writeln!(dst, "map_kd {name}")?;
         } else {
             writeln!(dst, "Kd {} {} {}", self.kd.x(), self.kd.y(), self.kd.z())?;
@@ -248,7 +250,9 @@ impl MTL {
 
         if let Some(map_ks) = &self.map_ks {
             let name = format!("{name_prefix}_ks.png");
-            map_ks.save(&name).expect(&format!("Failed to save {name}"));
+            map_ks
+                .save(&name)
+                .unwrap_or_else(|_| panic!("Failed to save {name}"));
             writeln!(dst, "map_ks {name}")?;
         } else {
             writeln!(dst, "Ks {} {} {}", self.ks.x(), self.ks.y(), self.ks.z())?;
@@ -256,7 +260,9 @@ impl MTL {
 
         if let Some(map_ka) = &self.map_ka {
             let name = format!("{name_prefix}_ks.png");
-            map_ka.save(&name).expect(&format!("Failed to save {name}"));
+            map_ka
+                .save(&name)
+                .unwrap_or_else(|_| panic!("Failed to save {name}"));
             writeln!(dst, "map_ka {name}")?;
         } else {
             writeln!(dst, "Ka {} {} {}", self.ka.x(), self.ka.y(), self.ka.z())?;
@@ -266,7 +272,7 @@ impl MTL {
             let name = format!("{name_prefix}_n.png");
             bump_normal
                 .save(&name)
-                .expect(&format!("Failed to save {name}"));
+                .unwrap_or_else(|_| panic!("Failed to save {name}"));
             writeln!(dst, "bump {name}")?;
         }
 

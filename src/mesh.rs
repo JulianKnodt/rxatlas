@@ -466,8 +466,7 @@ impl Mesh {
                 let midpoint = img_pix.midpoint();
                 let hit = iter::once(midpoint)
                     .chain(img_pix.corners().into_iter())
-                    .filter(|&c| tex.contains(c))
-                    .next()?;
+                    .find(|&c| tex.contains(c))?;
                 Some((pixel.min, f_i, tex.barycentric_coord(hit)))
             })
         });

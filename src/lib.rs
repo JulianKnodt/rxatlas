@@ -498,6 +498,11 @@ impl<const N: usize> Extent<N> {
         self.min = self.min.min(p);
         self.max = self.max.max(p);
     }
+    pub fn add_triangle<T>(&mut self, tri: &triangle::Triangle<N, T>) {
+        for p in &tri.verts {
+            self.add_point(p);
+        }
+    }
     pub fn add_extent(&mut self, v: &Self) {
         self.min = self.min.min(&v.min);
         self.max = self.max.max(&v.max);

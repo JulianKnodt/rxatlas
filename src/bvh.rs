@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 // based off of
 // https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics/
 
@@ -46,6 +47,23 @@ struct BVHNode {
 
     /// Number of primitives stored in this BVH node
     num_prims: usize,
+}
+
+/// A bin which contains some number of triangles.
+/// For use when computing SAH efficiently.
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct Bin {
+    aabb: AABB,
+    tri_count: usize,
+}
+
+impl Bin {
+    fn empty() -> Self {
+        Bin {
+            aabb: AABB::empty(),
+            tri_count: 0,
+        }
+    }
 }
 
 impl BVHNode {
@@ -204,7 +222,7 @@ impl<'a> BVH<'a> {
         } else {
             (0..3)
         };
-        let (cost, axis, pos) = range
+        range
             .map(|axis| {
                 let fp = node.first_prim();
                 assert_ne!(node.num_prims, 0);
@@ -219,13 +237,11 @@ impl<'a> BVH<'a> {
                 (cost, axis, pos)
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .unwrap();
-        (cost, axis, pos)
+            .unwrap()
     }
 
     /// Uses Surface Area Heuristic (SAH) linearly spaced through either all axes or just the
     /// best axis in order to split each BVH node.
-    #[inline]
     fn sah_linspace_split(&self, node: &BVHNode, n: usize, best_axis: bool) -> (f32, usize, f32) {
         let mut aabb = AABB::empty();
         let fp = node.first_prim();
@@ -238,7 +254,7 @@ impl<'a> BVH<'a> {
         } else {
             (0..3)
         };
-        let (cost, axis, pos) = range
+        range
             .map(|axis| {
                 let extent = aabb.extent();
                 let (cost, pos) = (0..n)
@@ -252,19 +268,74 @@ impl<'a> BVH<'a> {
                 (cost, axis, pos)
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .unwrap();
-        (cost, axis, pos)
+            .unwrap()
+    }
+
+    /// Uses linearly spaced with constant time number of bins in order to precompute bins
+    /// for each region.
+    fn sah_linspace_split_binned<const N: usize>(&self, node: &BVHNode) -> (f32, usize, f32) {
+        let mut aabb = AABB::empty();
+        let fp = node.first_prim();
+        for i in fp..fp + node.num_prims {
+            aabb.add_point(&self.centroids[i]);
+        }
+        let extent = aabb.extent();
+        (0..3)
+            .map(|axis| {
+                let mut bins = [Bin::empty(); N];
+                let scale = (N as f32) / extent[axis];
+                let min_bound = aabb.min[axis];
+                for i in fp..fp + node.num_prims {
+                    let bin_idx =
+                        (N - 1).min(((self.centroids[i][axis] - min_bound) * scale) as usize);
+                    bins[bin_idx]
+                        .aabb
+                        .add_triangle(&self.mesh.face(self.tris[i]).pos(self.mesh));
+                    bins[bin_idx].tri_count += 1;
+                }
+                let mut left_areas = [0.; N];
+                let mut right_areas = [0.; N];
+                let mut left_counts = [0; N];
+                let mut right_counts = [0; N];
+                let (mut left_aabb, mut right_aabb) = (AABB::empty(), AABB::empty());
+                let (mut left_sum, mut right_sum) = (0, 0);
+                for i in 0..N {
+                    left_sum += bins[i].tri_count;
+                    left_counts[i] = left_sum;
+                    left_aabb.add_extent(&bins[i].aabb);
+                    left_areas[i] = left_aabb.area();
+
+                    right_sum += bins[N - i - 1].tri_count;
+                    right_counts[N - i - 2] = right_sum;
+                    right_aabb.add_extent(&bins[N - i - 1].aabb);
+                    right_areas[N - i - 2] = right_aabb.area();
+                }
+                let scale = scale.recip();
+                let (cost, split_pos) = (0..N)
+                    .map(|i| {
+                        let cost = left_areas[i] * (left_counts[i] as f32)
+                            + right_areas[i] * (right_counts[i] as f32);
+                        (cost, min_bound + ((1 + i) as f32) * scale)
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .unwrap();
+                (cost, axis, split_pos)
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .unwrap()
     }
 
     /// Subdivide this BVH into separate nodes for some number of the triangles it encloses.
     fn subdivide(&mut self, idx: usize) {
         let node = &self.nodes[idx];
+        // stop if 2 or fewer triangles
         if node.num_prims <= 2 {
-            // stop if 2 or fewer triangles
             return;
         }
+        // TODO have an enum for strategy to allow for choice of split at compile time.
         let (cost, axis, split_pos) = self.sah_linspace_split(node, 128, false);
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
+
         if cost >= parent_cost {
             return;
         }
