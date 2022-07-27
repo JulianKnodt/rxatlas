@@ -104,8 +104,9 @@ impl<T> Triangle3<T> {
             .iter()
             .all(|&c| 0. <= c && c <= 1.)
     }
-    /// Returns a basis of vectors
-    pub fn tbn(&self, uv: &Triangle2) -> [Vec3; 3] {
+    /// Returns a basis of vectors, [Tangent, Bitangent, Normal]
+    /// With the provided normal.
+    pub fn tbn(&self, uv: &Triangle2, n: Vec3) -> [Vec3; 3] {
         let &[v0, v1, v2] = &self.verts;
         assert!(self.area() > 0.);
         let e0 = v1 - v0;
@@ -113,16 +114,25 @@ impl<T> Triangle3<T> {
 
         let &[uv0, uv1, uv2] = &uv.verts;
         // handle flipped uv triangles.
-        let (duv0, duv1) = if uv.area() >= 0.0 {
-            (uv1 - uv0, uv2 - uv0)
-        } else {
-            (uv2 - uv0, uv1 - uv0)
-        };
+        let (duv0, duv1) = (uv1 - uv0, uv2 - uv0);
         let f = duv0.cross(&duv1).recip();
-        assert!(f > 0.);
         let tan = Vector(from_fn(|dim| duv1.y() * e0[dim] - duv0.y() * e1[dim])) * f;
-        let bit = Vector(from_fn(|dim| -duv1.x() * e1[dim] + duv0.x() * e1[dim])) * f;
-        [tan.normalize(), bit.normalize(), self.normal()]
+        // Create orthonormal basis
+        let tan = tan.normalize();
+        let bit = n.cross(&tan).normalize();
+        let tan = bit.cross(&n).normalize();
+
+        assert!(tan.dot(&n).abs() < 1e-4);
+        assert!(bit.dot(&n).abs() < 1e-4);
+        assert!(tan.dot(&bit).abs() < 1e-4);
+        // Flip basis if the UV triangle is reversed.
+        // important for continuity.
+        let [tan, bit] = if uv.area() <= 0.0 {
+            [bit, tan]
+        } else {
+            [tan, bit]
+        };
+        [tan, bit, n]
     }
 }
 
