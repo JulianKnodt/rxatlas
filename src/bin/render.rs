@@ -1,7 +1,7 @@
 #![feature(let_else)]
-use clap::Parser;
+use clap::{ArgEnum, Parser};
 use image::{self, GenericImageView, ImageBuffer, Rgba};
-use rxatlas::{obj, Ray, Surface, Vector};
+use rxatlas::{mesh::NormalWeight, obj, Ray, Surface, Vector};
 
 /// Renders a mesh as example
 #[derive(Parser, Debug)]
@@ -21,43 +21,20 @@ struct Args {
     #[clap(long, value_parser, default_value_t = 512)]
     res: u32,
 
-    #[clap(long, value_parser, default_value_t = RenderKind::Normal)]
+    #[clap(arg_enum, long, value_parser, default_value_t = RenderKind::Normal)]
     kind: RenderKind,
 
     #[clap(long, value_parser)]
     texture: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ArgEnum)]
 pub enum RenderKind {
     Silhouette,
     Barycentric,
     Normal,
     UV,
     Diffuse,
-}
-
-impl std::fmt::Display for RenderKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl core::str::FromStr for RenderKind {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let v = match s.to_lowercase().as_str() {
-            "silhouette" => RenderKind::Silhouette,
-            "barycentric" => RenderKind::Barycentric,
-            "normal" => RenderKind::Normal,
-            "uv" => RenderKind::UV,
-            "diffuse" => RenderKind::Diffuse,
-
-            x => return Err(format!("Unknown render kind {x}")),
-        };
-        Ok(v)
-    }
 }
 
 pub fn main() {
@@ -78,7 +55,7 @@ pub fn main() {
     };
     let mut mesh = mesh.to_mesh();
     mesh.rescale_to_unit_aabb();
-    mesh.apply_average_face_normals();
+    mesh.apply_average_face_normals(NormalWeight::Area);
     let bvh = mesh.bvh();
 
     let mut out = ImageBuffer::new(args.res, args.res);

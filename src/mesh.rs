@@ -113,6 +113,12 @@ impl MeshFace {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NormalWeight {
+    Uniform,
+    Area,
+}
+
 impl Mesh {
     pub fn new() -> Self {
         Self::default()
@@ -193,7 +199,7 @@ impl Mesh {
     }
 
     /// Sets each vertex to the average of each of its face normals.
-    pub fn apply_average_face_normals(&mut self) {
+    pub fn apply_average_face_normals(&mut self, weight: NormalWeight) {
         self.normals.clear();
         self.normals.resize(self.verts.len(), Vector::new([0.; 3]));
         self.face_normals.clone_from(&self.faces);
@@ -202,9 +208,12 @@ impl Mesh {
             let vis = self.faces[i];
             let t = Triangle::new(vis.map(|vi| self.verts[vi]), ());
             let n = t.normal();
-            // TODO possibly apply a weighting based on triangle face area?
+            let w = match weight {
+                NormalWeight::Uniform => 1.,
+                NormalWeight::Area => t.area().abs(),
+            };
             for vi in vis {
-                self.normals[vi] += n;
+                self.normals[vi] += n * w;
             }
         }
         for n in self.normals.iter_mut() {
