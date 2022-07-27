@@ -56,9 +56,9 @@ pub fn quasi_random_hemi(samples_per_dim: usize) -> impl Iterator<Item = Vec3> {
     quasi_random_iter()
         .take(samples_per_dim)
         .flat_map(move |u| {
-            quasi_random_iter()
-                .take(samples_per_dim)
-                .map(move |v| Vector([u.acos(), 2.0 * std::f32::consts::PI * v]).elaz_to_xyz())
+            quasi_random_iter().take(samples_per_dim).map(move |v| {
+                Vector([u.sqrt().acos(), 2.0 * std::f32::consts::PI * v]).elaz_to_xyz()
+            })
         })
 }
 

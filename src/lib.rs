@@ -40,7 +40,9 @@ impl<const N: usize> Vector<N> {
         // Do explicit iter here instead of zip, since zip
         // has some issues with being slow.
         for i in 0..N {
-            total += self[i] * o[i];
+            unsafe {
+                total += self.0.get_unchecked(i) * o.0.get_unchecked(i);
+            }
         }
         total
     }

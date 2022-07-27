@@ -182,12 +182,12 @@ impl<'a> BVH<'a> {
 
         let fp = node.first_prim();
         for &tri_idx in &self.tris[fp..fp + node.num_prims] {
-            let [p0, p1, p2] = self.mesh.face_verts(tri_idx);
-            node.aabb.add_point(&p0);
-            node.aabb.add_point(&p1);
-            node.aabb.add_point(&p2);
+            for p in self.mesh.face_verts(tri_idx) {
+                node.aabb.add_point(&p);
+            }
         }
-        node.aabb.expand_by(1e-3);
+        // Add a little bit, so that there is no seam between aabbs.
+        node.aabb.expand_by(1e-10);
     }
 
     #[inline]
@@ -351,7 +351,7 @@ impl<'a> BVH<'a> {
             return;
         }
         // TODO have an enum for strategy to allow for choice of split at compile time.
-        let (cost, axis, split_pos) = self.sah_exhaustive_split(node, false);
+        let (cost, axis, split_pos) = self.sah_linspace_split(node, 128, false);
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
 
         if cost >= parent_cost {
