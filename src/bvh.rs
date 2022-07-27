@@ -6,6 +6,7 @@ use super::mesh::Mesh;
 use super::{intersect_tri, Intersection, Ray, Surface, Vec3, Vector, AABB};
 
 /// Intersect a ray with an axis-aligned bounding box
+#[inline]
 pub fn intersect_aabb(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> bool {
     let (tmin, tmax) = (0..3)
         .map(|i| {
@@ -16,6 +17,28 @@ pub fn intersect_aabb(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> bool {
         .reduce(|(amin, amax), (bmin, bmax)| (amin.max(bmin), amax.min(bmax)))
         .unwrap();
     tmax >= tmin && tmax >= 0.0 && hit.map(|hit| tmin < hit.t).unwrap_or(true)
+}
+
+#[inline]
+pub fn intersect_aabb_dist(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> Option<f32> {
+    let (tmin, tmax) = (0..3)
+        .map(|i| {
+            let tx1 = (aabb.min.0[i] - r.origin.0[i]) / r.dir.0[i];
+            let tx2 = (aabb.max.0[i] - r.origin.0[i]) / r.dir.0[i];
+            if tx1 < tx2 {
+                (tx1, tx2)
+            } else {
+                (tx2, tx1)
+            }
+        })
+        .reduce(|(amin, amax), (bmin, bmax)| (amin.max(bmin), amax.min(bmax)))
+        .unwrap();
+
+    if tmax >= tmin && tmax >= 0.0 && hit.map(|hit| tmin < hit.t).unwrap_or(true) {
+        Some(tmin)
+    } else {
+        None
+    }
 }
 
 /*
@@ -42,6 +65,7 @@ struct BVHNode {
     /// Number of primitives stored in this BVH node
     num_prims: usize,
 }
+const EMPTY: BVHNode = BVHNode::new();
 
 /// A bin which contains some number of triangles.
 /// For use when computing SAH efficiently.
@@ -99,7 +123,7 @@ impl BVHNode {
 impl BVHNode {
     #[inline]
     // returns a new empty instance of a bounding volume hierarchy node.
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             aabb: AABB::empty(),
             left_child_or_first_prim: 0,
@@ -158,7 +182,7 @@ impl<'a> BVH<'a> {
 
         let fp = node.first_prim();
         for &tri_idx in &self.tris[fp..fp + node.num_prims] {
-            let [p0, p1, p2] = self.mesh.face(tri_idx).pos(self.mesh).verts;
+            let [p0, p1, p2] = self.mesh.face_verts(tri_idx);
             node.aabb.add_point(&p0);
             node.aabb.add_point(&p1);
             node.aabb.add_point(&p2);
@@ -184,7 +208,7 @@ impl<'a> BVH<'a> {
         let fp = node.first_prim();
 
         for i in fp..fp + node.num_prims {
-            let ps = self.mesh.face(self.tris[i]).pos(self.mesh).verts;
+            let ps = self.mesh.face_verts(self.tris[i]);
             let c = self.centroids[i];
             if c[axis] < pos {
                 for p in ps {
@@ -327,7 +351,7 @@ impl<'a> BVH<'a> {
             return;
         }
         // TODO have an enum for strategy to allow for choice of split at compile time.
-        let (cost, axis, split_pos) = self.sah_linspace_split(node, 256, false);
+        let (cost, axis, split_pos) = self.sah_exhaustive_split(node, false);
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
 
         if cost >= parent_cost {
@@ -372,7 +396,8 @@ impl<'a> BVH<'a> {
 
     #[inline]
     pub fn intersects(&self, ray: &Ray) -> Option<Intersection> {
-        self.intersects_node(ray, self.root_node_idx, None)
+        //self.intersects_node(ray, self.root_node_idx, None)
+        self.intersects_bvh_stack::<32>(ray)
     }
 
     #[inline]
@@ -388,28 +413,107 @@ impl<'a> BVH<'a> {
             return None;
         }
         if node.is_leaf() {
-            (node.first_prim()..node.first_prim() + node.num_prims)
-                .filter_map(|i| {
-                    let tri = &self.mesh.face(self.tris[i]).pos(self.mesh).verts;
-                    intersect_tri(tri, ray, 1e-8).map(|t| Intersection {
-                        t,
-                        face: self.tris[i],
-                    })
+            let fp = node.first_prim();
+            (fp..fp + node.num_prims).fold(curr_t, |best, i| {
+                let tri = self.mesh.face_verts(self.tris[i]);
+                let Some(hit) = intersect_tri(&tri, ray).map(|t| Intersection {
+                    t,
+                    face: self.tris[i],
+                }) else {
+                    return best;
+                };
+                Some(match best {
+                    None => hit,
+                    Some(best) => hit.closer(best),
                 })
-                .chain(curr_t.into_iter())
-                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap())
+            })
         } else {
             let left = self.intersects_node(ray, node.left_child(), curr_t);
             let curr_nearest = [left, curr_t]
                 .into_iter()
                 .flatten()
-                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
+                .min_by(|a, b| a.t.total_cmp(&b.t));
             let right = self.intersects_node(ray, node.right_child(), curr_nearest);
             [left, right]
                 .into_iter()
                 .flatten()
-                .min_by(|a, b| a.t.partial_cmp(&b.t).unwrap())
+                .min_by(|a, b| a.t.total_cmp(&b.t))
         }
+    }
+
+    #[inline]
+    pub fn intersects_bvh_stack<const SZ: usize>(&self, r: &Ray) -> Option<Intersection> {
+        let mut stack = [&EMPTY; SZ];
+        let mut stack_ptr = 0;
+
+        macro_rules! push {
+            ($n: expr) => {
+                assert!(stack_ptr < SZ);
+                stack[stack_ptr] = $n;
+                stack_ptr += 1;
+            };
+        }
+
+        macro_rules! pop {
+            () => {
+                if stack_ptr == 0 {
+                    None
+                } else {
+                    stack_ptr -= 1;
+                    debug_assert_ne!(stack[stack_ptr], &EMPTY);
+                    Some(stack[stack_ptr])
+                }
+            };
+        };
+
+        let mut node = &self.nodes[self.root_node_idx];
+        let mut curr_best: Option<Intersection> = None;
+        loop {
+            // TODO need to check if the leaf here is closer than current best.
+            if node.is_leaf() {
+                let fp = node.first_prim();
+                for i in fp..fp + node.num_prims {
+                    let tri = self.mesh.face_verts(self.tris[i]);
+                    let Some(hit) = intersect_tri(&tri, r).map(|t| Intersection {
+                        t,
+                        face: self.tris[i],
+                    }) else {
+                        continue
+                    };
+                    curr_best = Some(match curr_best {
+                        None => hit,
+                        Some(b) => hit.closer(b),
+                    });
+                }
+                node = if let Some(node) = pop!() { node } else { break };
+                continue;
+            }
+            // add children in aabb hit order
+            let c1 = unsafe { self.nodes.get_unchecked(node.left_child()) };
+            let c2 = unsafe { self.nodes.get_unchecked(node.right_child()) };
+            let d1 = intersect_aabb_dist(&c1.aabb, r, curr_best);
+            let d2 = intersect_aabb_dist(&c2.aabb, r, curr_best);
+            node = match (d1, d2) {
+                (None, None) => {
+                    let Some(n) = pop!() else { break; };
+                    n
+                }
+                (Some(d1), None) => c1,
+                (None, Some(d2)) => c2,
+                (Some(d1), Some(d2)) => {
+                    if d1 < d2 {
+                        push!(c2);
+                        c1
+                    } else {
+                        push!(c1);
+                        c2
+                    }
+                }
+            }
+        }
+        assert_eq!(stack_ptr, 0);
+
+        curr_best
     }
 
     /// Finds triangles which intersect this aabb, pushing their indeces onto out

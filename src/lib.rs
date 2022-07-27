@@ -34,12 +34,15 @@ impl<const N: usize> Vector<N> {
         Self([1.; N])
     }
     /// Computes the dot product of two vectors.
+    #[inline]
     pub fn dot(&self, o: &Self) -> f32 {
-        self.0
-            .iter()
-            .zip(o.0.iter())
-            .map(|(l, r)| l * r)
-            .sum::<f32>()
+        let mut total = 0.;
+        // Do explicit iter here instead of zip, since zip
+        // has some issues with being slow.
+        for i in 0..N {
+            total += self[i] * o[i];
+        }
+        total
     }
     pub fn length_sq(&self) -> f32 {
         self.dot(self)
@@ -282,15 +285,19 @@ macro_rules! impl_ops {
   ($op: ty, $gen_ty: ident, $scalar_op: ty, $fn_name: ident, $op_token: tt) => {
     impl<const N: usize> $op for Vector<N> {
       type Output = Self;
+      #[inline]
       fn $fn_name(self, o: Self) -> Self {
-        Self(from_fn(|i| self.0[i] $op_token o.0[i]))
+        unsafe {
+            Self(from_fn(|i| self.0.get_unchecked(i) $op_token o.0.get_unchecked(i)))
+        }
       }
     }
     impl<const N: usize, $gen_ty: PartialOrd + Copy +
       Add<Output=T> + Mul<Output=T> + Sub<Output=T> + Div<Output=T>> $scalar_op for Vector<N, T> {
       type Output = Self;
+      #[inline]
       fn $fn_name(self, o: $gen_ty) -> Self {
-        Self(from_fn(|i| self.0[i] $op_token o))
+        Self(self.0.map(|v| v $op_token o))
       }
     }
   }
@@ -301,10 +308,11 @@ impl_ops!(Sub, T, Sub<T>, sub, -);
 impl_ops!(Mul, T, Mul<T>, mul, *);
 impl_ops!(Div, T, Div<T>, div, /);
 
-impl<const N: usize> std::ops::Neg for Vector<N> {
+impl<const N: usize, T: std::ops::Neg<Output = T>> std::ops::Neg for Vector<N, T> {
     type Output = Self;
+    #[inline]
     fn neg(self) -> Self {
-        Self(from_fn(|i| -self.0[i]))
+        Self(self.0.map(|v| -v))
     }
 }
 
@@ -324,6 +332,7 @@ impl<const N: usize, T> IndexMut<usize> for Vector<N, T> {
 }
 
 impl Default for Vec3 {
+    #[inline]
     fn default() -> Self {
         Vector([0.; 3])
     }
@@ -494,7 +503,7 @@ where
 impl<const N: usize> Extent<N> {
     /// Returns an AABB which contains nothing.
     #[inline]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             min: Vector([f32::INFINITY; N]),
             max: Vector([f32::NEG_INFINITY; N]),
@@ -869,6 +878,17 @@ pub struct Intersection {
     pub t: f32,
 }
 
+impl Intersection {
+    #[inline]
+    pub fn closer(self, o: Self) -> Self {
+        if self.t < o.t {
+            self
+        } else {
+            o
+        }
+    }
+}
+
 /// Surfaces are objects which can be hit by rays.
 pub trait Surface {
     fn intersect_ray(&self, ray: &Ray) -> Option<Intersection>;
@@ -896,12 +916,13 @@ impl Ray {
     }
 }
 
-pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32> {
+pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray) -> Option<f32> {
+    const EPS: f32 = 1e-12;
     let e0 = p1 - p0;
     let e1 = p2 - p0;
     let h = r.dir.cross(&e1);
     let a = e0.dot(&h);
-    if -eps < a && a < eps {
+    if -EPS < a && a < EPS {
         return None;
     }
     let f = 1. / a;
@@ -916,7 +937,11 @@ pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray, eps: f32) -> Option<f32
         return None;
     }
     let t = f * e1.dot(&q);
-    Some(t).filter(|t| *t > eps)
+    if t > EPS {
+        Some(t)
+    } else {
+        None
+    }
 }
 
 pub mod linalg;

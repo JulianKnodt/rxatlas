@@ -236,6 +236,11 @@ impl Mesh {
         }
     }
 
+    #[inline]
+    pub fn face_verts(&self, i: usize) -> [Vec3; 3] {
+        self.faces[i].map(|vi| unsafe { *self.verts.get_unchecked(vi) })
+    }
+
     /// [WIP] Finds all verts at the same location of all verts using a bvh
     pub fn colocated_verts_bvh(&self) -> impl Iterator<Item = usize> {
         todo!();
@@ -614,7 +619,7 @@ impl Surface for Mesh {
         let mut out = None;
         for (i, f) in self.faces().enumerate() {
             let p = f.pos(self);
-            let int = intersect_tri(&p.verts, r, 1e-5);
+            let int = intersect_tri(&p.verts, r);
             out = match (out, int) {
                 (prev, None) => prev,
                 (None, Some(t)) => Some(Intersection { face: i, t }),
