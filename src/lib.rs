@@ -79,6 +79,12 @@ impl<const N: usize> Vector<N> {
     pub fn ceil(&self) -> Self {
         Self(self.0.map(f32::ceil))
     }
+    /// Takes the softmax of this vector.
+    #[inline]
+    pub fn softmax(&self) -> Self {
+        let s = self.0.iter().copied().map(f32::exp).sum::<f32>().recip();
+        Vector(self.0.map(f32::exp)) * s
+    }
     pub fn cast<T>(&self) -> [T; N]
     where
         f32: Into<T>,
