@@ -153,11 +153,15 @@ impl Vec2 {
         (val - b[dim]) / a[dim]
     }
 
+    #[inline]
     pub fn elaz_to_xyz(&self) -> Vec3 {
         let &Vector([el, az]) = self;
-        let (els, elc) = el.sin_cos();
+        let els = el.sin();
         let (azs, azc) = az.sin_cos();
-        Vector([azc * els, azs * els, elc])
+        let x = azc * els;
+        let y = azs * els;
+        let z = (1. - x * x - y * y).max(0.).sqrt();
+        Vector([x, y, z])
     }
 }
 

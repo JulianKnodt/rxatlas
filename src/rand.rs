@@ -5,9 +5,9 @@ use super::{Vec2, Vec3, Vector};
 pub fn rand(seed: f32) -> f32 {
     static mut C: f32 = 1.0;
     unsafe {
-        let v = (C * 4997.39 + 3.8).sin();
+        let v = ((C * 4397.39 + 3.8).sin() * 43758.5453 + seed * 12.9898).sin();
         let v = (v + 1.) / 2.;
-        C += v + seed;
+        C += v * 7. + seed * 111.0;
         v
     }
 }
@@ -45,8 +45,8 @@ pub fn quasi_random_iter() -> impl Iterator<Item = f32> {
 
 /// Returns a random uniform sample in the hemisphere around [0,0,1]
 pub fn uniform_hemisphere(seed: f32) -> Vec3 {
-    let theta = rand(seed).acos();
-    let phi = 2.0 * std::f32::consts::PI * rand(seed);
+    let theta = rand(seed).sqrt().acos();
+    let phi = std::f32::consts::TAU * rand(seed + theta);
     Vector([theta, phi]).elaz_to_xyz()
 }
 
@@ -56,16 +56,32 @@ pub fn quasi_random_hemi(samples_per_dim: usize) -> impl Iterator<Item = Vec3> {
     quasi_random_iter()
         .take(samples_per_dim)
         .flat_map(move |u| {
-            quasi_random_iter().take(samples_per_dim).map(move |v| {
-                Vector([u.sqrt().acos(), 2.0 * std::f32::consts::PI * v]).elaz_to_xyz()
-            })
+            let u = u.sqrt().acos();
+            quasi_random_iter()
+                .take(samples_per_dim)
+                .map(move |v| Vector([u, 2.0 * std::f32::consts::PI * v]).elaz_to_xyz())
         })
 }
 
 #[test]
 fn test_uniform_hemisphere() {
-    for i in 0..100 {
+    use crate::point_vis::PointVisualizer;
+
+    let mut pv = PointVisualizer::new();
+    /*
+     */
+    for i in 0..1000 {
         let v = uniform_hemisphere(i as f32);
-        assert!(v.z() >= 0.);
+        assert!(v.z() >= -1e-3, "{}", v.z());
+        pv.add_point((v.xy() + 1.) / 2., [128, 128, 128]);
     }
+    /*
+    for d in quasi_random_hemi(33) {
+        let v = d.normalize();
+        //assert!(v.z() >= 0.);
+        println!("{:?}", v);
+        pv.add_point((v.xy()+1.)/2., [128, 128, 128]);
+    }
+    */
+    pv.save("hemi_dist.png");
 }
