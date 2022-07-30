@@ -6,6 +6,8 @@ use std::cmp::Ordering;
 use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 
 mod bvh;
+pub mod material;
+pub mod mesh;
 pub mod point_vis;
 pub mod rand;
 pub mod triangle;
@@ -224,6 +226,12 @@ impl Vec3 {
     pub fn to_basis(&self, basis: &[Vec3; 3]) -> Vec3 {
         Vector(basis.map(|e| self.dot(&e)))
     }
+
+    #[inline]
+    pub fn homogeneous(&self) -> Vec4 {
+        let &Vector([x, y, z]) = self;
+        Vector::new([x, y, z, 1.])
+    }
 }
 
 #[test]
@@ -246,6 +254,7 @@ impl Vec4 {
         self.conjugate().normalize()
     }
 
+    #[inline]
     pub fn hamilton_prod(&self, o: &Self) -> Vec4 {
         let Vector([b1, c1, d1, a1]) = self;
         let Vector([b2, c2, d2, a2]) = o;
@@ -876,8 +885,6 @@ impl RasterTri {
         ]
     }
 }
-
-pub mod mesh;
 
 pub fn point_on_line(&p: &Vec3, &[l0, l1]: &[Vec3; 2], eps: f32) -> Option<f32> {
     if p.approx_equals(&l0, eps) {

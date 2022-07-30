@@ -7,6 +7,8 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
+use crate::material::{MaterialBank, MaterialDefn};
+
 /// Represents a single OBJ file, as well as materials for that OBJ file.
 #[derive(Default)]
 pub struct Obj {
@@ -16,7 +18,6 @@ pub struct Obj {
 }
 
 // TODO need to implement a way to fuse a bunch of MTL files into a single super Material.
-
 #[derive(Debug, Clone, Default)]
 pub struct ObjObject {
     v: Vec<Vec3>,
@@ -311,9 +312,48 @@ impl MTL {
     }
 }
 
+impl Obj {
+    /// Convert this OBJ representation into a single mesh (panicking otherwise)
+    /// and a set of materials. The materials will be stored in the given material bank.
+    #[inline]
+    pub fn to_single_mesh(mut self, mat_bank: &mut MaterialBank) -> Mesh {
+        let og_to_mat_refs: Vec<usize> = self
+            .mtls
+            .into_iter()
+            .map(|(_, mtl)| mtl)
+            .map(MaterialDefn::from_mtl)
+            .map(|defn| mat_bank.add_material(defn))
+            .collect();
+        assert_eq!(self.objects.len(), 1);
+        self.objects
+            .pop()
+            .unwrap()
+            .to_mesh_mapped_tex_idx(|i| og_to_mat_refs[i])
+    }
+    #[inline]
+    pub fn to_meshes(mut self, mat_bank: &mut MaterialBank) -> impl Iterator<Item = Mesh> {
+        let og_to_mat_refs: Vec<usize> = self
+            .mtls
+            .into_iter()
+            .map(|(_, mtl)| mtl)
+            .map(MaterialDefn::from_mtl)
+            .map(|defn| mat_bank.add_material(defn))
+            .collect();
+        self.objects
+            .into_iter()
+            .map(move |o| o.to_mesh_mapped_tex_idx(|i| og_to_mat_refs[i]))
+    }
+}
+
 impl ObjObject {
     /// Converts from an obj object to an internal Mesh object.
+    #[inline]
     pub fn to_mesh(self) -> Mesh {
+        self.to_mesh_mapped_tex_idx(|i| i)
+    }
+    /// Converts this ObjObject into a mesh, mapping texture indices.
+    #[inline]
+    pub fn to_mesh_mapped_tex_idx(self, map: impl Fn(usize) -> usize) -> Mesh {
         let mut m = Mesh::new();
         let ObjObject { v, vt, vn, f } = self;
         m.verts.extend(v);
@@ -321,7 +361,8 @@ impl ObjObject {
         m.tex_coords.extend(vt);
         // here we want to check if all the verts have a texture, or if none of them have a
         // texture. Do not allow for intermediate states?
-        for f in f.into_iter() {
+        for mut f in f.into_iter() {
+            f.mat = f.mat.map(&map);
             m.add_face(f);
         }
         m
