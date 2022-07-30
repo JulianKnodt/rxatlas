@@ -6,6 +6,14 @@ use super::{intersect_tri, Intersection, Ray, Surface, Vec2, Vec3, Vector, AABB}
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::iter;
 
+/// Attempts to group faces for charts.
+pub mod group_faces;
+/// Method for converting this representation designed for rendering to a half-edge mesh
+/// for geometry processing.
+pub mod half_edge;
+/// Tutte Parameterization of a mesh
+pub mod tutte;
+
 // A bunch of type aliases for indexing into different stuff.
 // Mostly to self-document code.
 
@@ -103,6 +111,7 @@ impl MeshFace {
         self.vt
             .map(|vt| Triangle::new(vt.map(|vi| m.tex_coords[vi]), ()))
     }
+    #[inline]
     pub fn edges(&self) -> [Edge; 3] {
         let [vi0, vi1, vi2] = self.v;
         [
@@ -239,6 +248,11 @@ impl Mesh {
     #[inline]
     pub fn face_verts(&self, i: usize) -> [Vec3; 3] {
         self.faces[i].map(|vi| unsafe { *self.verts.get_unchecked(vi) })
+    }
+
+    #[inline]
+    pub fn face_tri(&self, i: usize) -> Triangle3 {
+        Triangle3::new(self.faces[i].map(|vi| self.verts[vi]), ())
     }
 
     /// [WIP] Finds all verts at the same location of all verts using a bvh
@@ -406,7 +420,7 @@ impl Mesh {
         super::centroid(&self.verts)
     }
     /// Returns adjacent faces for face `i`.
-    pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
+    pub fn adjacent_faces(&self, i: usize) -> impl Iterator<Item = FaceIdx> + '_ {
         self.face(i)
             .edges()
             .into_iter()
@@ -639,10 +653,3 @@ pub struct SimpleMesh<'a> {
     verts: &'a [Vec3],
     faces: &'a [[VertIdx; 3]],
 }
-
-/// Tutte Parameterization of a mesh
-pub mod tutte;
-
-/// Method for converting this representation designed for rendering to a half-edge mesh
-/// for geometry processing.
-pub mod half_edge;

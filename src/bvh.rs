@@ -121,8 +121,8 @@ impl BVHNode {
 }
 
 impl BVHNode {
+    /// returns a new empty instance of a bounding volume hierarchy node.
     #[inline]
-    // returns a new empty instance of a bounding volume hierarchy node.
     const fn new() -> Self {
         Self {
             aabb: AABB::empty(),
@@ -246,7 +246,6 @@ impl<'a> BVH<'a> {
                 assert_ne!(node.num_prims, 0);
                 let (cost, pos) = (fp..fp + node.num_prims)
                     .map(|i| {
-                        let tri_idx = &self.tris[i];
                         let pos = self.centroids[i][axis];
                         (self.evaluate_sah_cost(node, axis, pos), pos)
                     })
@@ -300,36 +299,43 @@ impl<'a> BVH<'a> {
         let extent = aabb.extent();
         (0..3)
             .map(|axis| {
+                if extent[axis] < 1e-12 {
+                    return (f32::INFINITY, axis, aabb.min[axis]);
+                }
                 let mut bins = [Bin::empty(); N];
                 let scale = (N as f32) / extent[axis];
                 let min_bound = aabb.min[axis];
+
                 for i in fp..fp + node.num_prims {
                     let bin_idx =
                         (N - 1).min(((self.centroids[i][axis] - min_bound) * scale) as usize);
                     bins[bin_idx]
                         .aabb
-                        .add_triangle(&self.mesh.face(self.tris[i]).pos(self.mesh));
+                        .add_triangle(&self.mesh.face_tri(self.tris[i]));
                     bins[bin_idx].tri_count += 1;
                 }
-                let mut left_areas = [0.; N];
-                let mut right_areas = [0.; N];
-                let mut left_counts = [0; N];
-                let mut right_counts = [0; N];
+                let [mut left_areas, mut right_areas] = [[0.; N]; 2];
+                let [mut left_counts, mut right_counts] = [[0; N]; 2];
                 let (mut left_aabb, mut right_aabb) = (AABB::empty(), AABB::empty());
                 let (mut left_sum, mut right_sum) = (0, 0);
+
                 for i in 0..N - 1 {
                     left_sum += bins[i].tri_count;
                     left_counts[i] = left_sum;
-                    left_aabb.add_extent(&bins[i].aabb);
+                    if bins[i].tri_count > 0 {
+                        left_aabb.add_extent(&bins[i].aabb);
+                    }
                     left_areas[i] = left_aabb.area();
 
                     right_sum += bins[N - i - 1].tri_count;
-                    right_counts[N - i - 1] = right_sum;
-                    right_aabb.add_extent(&bins[N - i - 1].aabb);
-                    right_areas[N - i - 1] = right_aabb.area();
+                    right_counts[N - i - 2] = right_sum;
+                    if bins[N - i - 1].tri_count > 0 {
+                        right_aabb.add_extent(&bins[N - i - 1].aabb);
+                    }
+                    right_areas[N - i - 2] = right_aabb.area();
                 }
                 let scale = scale.recip();
-                let (cost, split_pos) = (0..N)
+                let (cost, split_pos) = (0..N - 1)
                     .map(|i| {
                         let cost = left_areas[i] * (left_counts[i] as f32)
                             + right_areas[i] * (right_counts[i] as f32);
@@ -337,6 +343,7 @@ impl<'a> BVH<'a> {
                     })
                     .min_by(|a, b| a.0.total_cmp(&b.0))
                     .unwrap();
+                assert!(cost.is_finite());
                 (cost, axis, split_pos)
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
@@ -351,7 +358,8 @@ impl<'a> BVH<'a> {
             return;
         }
         // TODO have an enum for strategy to allow for choice of split at compile time.
-        let (cost, axis, split_pos) = self.sah_linspace_split(node, 128, false);
+        let (cost, axis, split_pos) = self.sah_exhaustive_split(node, false);
+        assert!(cost.is_finite());
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
 
         if cost >= parent_cost {

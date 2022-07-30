@@ -12,7 +12,7 @@ pub struct OFF {
 
 pub fn parse(p: impl AsRef<Path>) -> io::Result<OFF> {
     let f = File::open(p.as_ref())?;
-    let mut buf_read = BufReader::new(f);
+    let buf_read = BufReader::new(f);
     let mut off = OFF::default();
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum ParseState {
@@ -25,8 +25,8 @@ pub fn parse(p: impl AsRef<Path>) -> io::Result<OFF> {
     let mut state = ParseState::Init;
     let mut verts = 0;
     let mut faces = 0;
-    let mut pusize = |s: &str| s.parse::<usize>().unwrap();
-    let mut pf32 = |s: &str| s.parse::<f32>().unwrap();
+    let pusize = |s: &str| s.parse::<usize>().unwrap();
+    let pf32 = |s: &str| s.parse::<f32>().unwrap();
 
     for (i, l) in buf_read.lines().enumerate() {
         let l = l?;
@@ -90,11 +90,11 @@ impl OFF {
         writeln!(dst, "{} {} {}", self.v.len(), self.f.len(), 0)?;
         dst.write_all(b"# Vertices:\n")?;
         for Vector([x, y, z]) in &self.v {
-            writeln!(dst, "{x} {y} {z}");
+            writeln!(dst, "{x} {y} {z}")?;
         }
         dst.write_all(b"# Faces:\n")?;
         for [vi0, vi1, vi2] in &self.f {
-            writeln!(dst, "{vi0} {vi1} {vi2}");
+            writeln!(dst, "{vi0} {vi1} {vi2}")?;
         }
         Ok(())
     }

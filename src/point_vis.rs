@@ -16,7 +16,9 @@ impl PointVisualizer {
         }
     }
     pub fn save(&self, p: &str) {
-        self.img.save(p);
+        self.img
+            .save(p)
+            .expect("Failed to save point visualization");
     }
     pub fn add_point(&mut self, p: Vec2, [r, g, b]: [u8; 3]) {
         self.pts.push(p);

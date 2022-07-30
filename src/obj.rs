@@ -174,7 +174,7 @@ pub fn parse(p: impl AsRef<Path>, split_by_object: bool, split_by_group: bool) -
 
 pub fn parse_mtl(p: impl AsRef<Path>) -> io::Result<Vec<(String, MTL)>> {
     let f = File::open(p.as_ref())?;
-    let mut buf_read = BufReader::new(f);
+    let buf_read = BufReader::new(f);
     let mut curr_mtl = MTL::default();
     let mut curr_name = String::new();
 
@@ -353,7 +353,7 @@ impl ObjObject {
         dst.write_all(b"usemtl default_mat\n")?;
 
         for f in &self.f {
-            dst.write_all(b"f ");
+            dst.write_all(b"f ")?;
             let [v0, v1, v2] = f.v.map(|v| v + 1);
             match (
                 f.vt.map(|vt| vt.map(|vt| vt + 1)),

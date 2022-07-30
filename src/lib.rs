@@ -96,6 +96,16 @@ impl<const N: usize> Vector<N> {
     {
         self.0.map(|v| v.into())
     }
+    /// Sums all elements of this vector.
+    #[inline]
+    pub fn sum(&self) -> f32 {
+        self.0.iter().sum()
+    }
+    /// Returns the product of all elements of this vector.
+    #[inline]
+    pub fn prod(&self) -> f32 {
+        self.0.iter().product()
+    }
 }
 
 impl<const N: usize, T: PartialOrd + Copy> Vector<N, T> {
@@ -467,6 +477,11 @@ impl AABB {
         let Vector([x, y, z]) = self.extent();
         2. * (x * y + y * z + z * x)
     }
+    /// Computes the volume of this AABB.
+    #[inline]
+    pub fn volume(&self) -> f32 {
+        self.extent().prod()
+    }
 }
 
 impl<const N: usize, T: PartialOrd + Copy> Extent<N, T> {
@@ -510,10 +525,8 @@ impl<const N: usize> Extent<N> {
     /// Returns an AABB which contains nothing.
     #[inline]
     pub const fn empty() -> Self {
-        Self {
-            min: Vector([f32::INFINITY; N]),
-            max: Vector([f32::NEG_INFINITY; N]),
-        }
+        let z = Vector([0.; N]);
+        Self { min: z, max: z }
     }
     #[inline]
     pub fn reset(&mut self) {
@@ -524,14 +537,18 @@ impl<const N: usize> Extent<N> {
         self.min = self.min.min(p);
         self.max = self.max.max(p);
     }
+    #[inline]
     pub fn add_triangle<T>(&mut self, tri: &triangle::Triangle<N, T>) {
         for p in &tri.verts {
             self.add_point(p);
         }
     }
+    #[inline]
     pub fn add_extent(&mut self, v: &Self) {
-        self.min = self.min.min(&v.min);
-        self.max = self.max.max(&v.max);
+        self.add_point(&v.min);
+        self.add_point(&v.max);
+        // self.min = self.min.min(&v.min);
+        // self.max = self.max.max(&v.max);
     }
     /// Computes the diagonal of this aabb, which spans the box.
     #[inline]

@@ -19,25 +19,34 @@ impl<const N: usize, T> Add<Vector<N>> for Triangle<N, T> {
 
 pub type Triangle3<T = ()> = Triangle<3, T>;
 pub type Triangle2<T = ()> = Triangle<2, T>;
+impl<T: Default> Default for Triangle3<T> {
+    fn default() -> Self {
+        Triangle3 {
+            verts: Default::default(),
+            data: T::default(),
+        }
+    }
+}
 
 impl<T, const N: usize> Triangle<N, T> {
-    pub fn new(verts: [Vector<N>; 3], data: T) -> Self {
+    #[inline]
+    pub const fn new(verts: [Vector<N>; 3], data: T) -> Self {
         Self { verts, data }
     }
 
-    pub fn shrink(self) -> Triangle<N, ()> {
-        Triangle {
-            verts: self.verts,
-            data: (),
-        }
+    /// Splits this triangle into its data and its vertices, returning a tuple of a (triangle with no
+    /// data, and the old associated data).
+    #[inline]
+    pub fn shrink(self) -> (Triangle<N, ()>, T) {
+        let Triangle { verts, data } = self;
+        (Triangle { verts, data: () }, data)
     }
 
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Triangle<N, U> {
+    #[inline]
+    pub fn map<U>(self, mut f: impl FnMut(&Triangle<N, ()>, T) -> U) -> Triangle<N, U> {
         let Triangle { verts, data } = self;
-        Triangle {
-            verts,
-            data: f(data),
-        }
+        let data = f(&Triangle::new(verts, ()), data);
+        Triangle { verts, data }
     }
 
     /// Average of all vertices
@@ -90,6 +99,7 @@ impl<T> Triangle3<T> {
         Vector([a1, a2, a0]) / total_area
     }
     /// Gets the global position of a barycentric coordinate for this triangle
+    #[inline]
     pub fn bary_to_world(&self, bary: Vec3) -> Vec3 {
         let [v0, v1, v2] = self.verts;
         let Vector([u, v, w]) = bary;
@@ -104,6 +114,7 @@ impl<T> Triangle3<T> {
             .iter()
             .all(|&c| 0. <= c && c <= 1.)
     }
+
     /// Returns a basis of vectors, [Tangent, Bitangent, Normal]
     /// With the provided normal.
     pub fn tbn(&self, uv: &Triangle2, n: Vec3) -> [Vec3; 3] {
