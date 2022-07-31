@@ -20,7 +20,7 @@ pub fn intersect_aabb(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> bool {
 }
 
 #[inline]
-pub fn intersect_aabb_dist(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> Option<f32> {
+pub fn intersect_aabb_dist(aabb: &AABB, r: &Ray, max: f32) -> f32 {
     let (tmin, tmax) = (0..3)
         .map(|i| {
             let tx1 = (aabb.min.0[i] - r.origin.0[i]) / r.dir.0[i];
@@ -34,10 +34,10 @@ pub fn intersect_aabb_dist(aabb: &AABB, r: &Ray, hit: Option<Intersection>) -> O
         .reduce(|(amin, amax), (bmin, bmax)| (amin.max(bmin), amax.min(bmax)))
         .unwrap();
 
-    if tmax >= tmin && tmax >= 0.0 && hit.map(|hit| tmin < hit.t).unwrap_or(true) {
-        Some(tmin)
+    if tmax >= tmin && tmax >= 0.0 && tmin < max {
+        tmin
     } else {
-        None
+        f32::INFINITY
     }
 }
 
@@ -86,8 +86,9 @@ impl Bin {
 
 impl BVHNode {
     /// Returns the right child of this bvh node, which is always left child + 1
+    #[inline]
     fn right_child(&self) -> usize {
-        assert!(!self.is_leaf());
+        debug_assert!(!self.is_leaf());
         self.left_child() + 1
     }
     #[inline]
@@ -97,7 +98,7 @@ impl BVHNode {
     /// Sets the left child of this node, and returns (first_prim, number of primitives) it had before
     #[inline]
     fn set_left_child(&mut self, left_child: usize) -> (usize, usize) {
-        assert!(self.is_leaf());
+        debug_assert!(self.is_leaf());
         (
             std::mem::replace(&mut self.left_child_or_first_prim, left_child),
             std::mem::replace(&mut self.num_prims, 0),
@@ -105,12 +106,12 @@ impl BVHNode {
     }
     #[inline]
     fn left_child(&self) -> usize {
-        assert!(!self.is_leaf());
+        debug_assert!(!self.is_leaf());
         self.left_child_or_first_prim
     }
     #[inline]
     fn first_prim(&self) -> usize {
-        assert!(self.is_leaf());
+        debug_assert!(self.is_leaf());
         self.left_child_or_first_prim
     }
     #[inline]
@@ -358,7 +359,7 @@ impl<'a> BVH<'a> {
             return;
         }
         // TODO have an enum for strategy to allow for choice of split at compile time.
-        let (cost, axis, split_pos) = self.sah_exhaustive_split(node, false);
+        let (cost, axis, split_pos) = self.sah_linspace_split_binned::<128>(node);
         assert!(cost.is_finite());
         let parent_cost = node.aabb.area() * (node.num_prims as f32);
 
@@ -405,7 +406,7 @@ impl<'a> BVH<'a> {
     #[inline]
     pub fn intersects(&self, ray: &Ray) -> Option<Intersection> {
         //self.intersects_node(ray, self.root_node_idx, None)
-        self.intersects_bvh_stack::<32>(ray)
+        self.intersects_bvh_stack::<20>(ray)
     }
 
     #[inline]
@@ -416,7 +417,7 @@ impl<'a> BVH<'a> {
         idx: usize,
         curr_t: Option<Intersection>,
     ) -> Option<Intersection> {
-        let node = &self.nodes[idx];
+        let node = unsafe { &self.nodes.get_unchecked(idx) };
         if !intersect_aabb(&node.aabb, ray, curr_t) {
             return None;
         }
@@ -437,10 +438,17 @@ impl<'a> BVH<'a> {
             })
         } else {
             let left = self.intersects_node(ray, node.left_child(), curr_t);
-            let curr_nearest = [left, curr_t]
-                .into_iter()
-                .flatten()
-                .min_by(|a, b| a.t.total_cmp(&b.t));
+            let curr_nearest = match (curr_t, left) {
+                (None, None) => None,
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (Some(a), Some(b)) => {
+                    if a.t < b.t {
+                        Some(a)
+                    } else {
+                        Some(b)
+                    }
+                }
+            };
             let right = self.intersects_node(ray, node.right_child(), curr_nearest);
             [left, right]
                 .into_iter()
@@ -456,11 +464,17 @@ impl<'a> BVH<'a> {
 
         macro_rules! push {
             ($n: expr) => {
-                assert!(stack_ptr < SZ);
-                stack[stack_ptr] = $n;
+                debug_assert!(stack_ptr < SZ);
+                unsafe {
+                    *stack.get_unchecked_mut(stack_ptr) = $n;
+                }
                 stack_ptr += 1;
             };
         }
+
+        // TODO maybe convert this into an Intersection with infinite dist
+        // and later check if it is infinite
+        let mut curr_best = Intersection::none();
 
         macro_rules! pop {
             () => {
@@ -469,29 +483,27 @@ impl<'a> BVH<'a> {
                 } else {
                     stack_ptr -= 1;
                     debug_assert_ne!(stack[stack_ptr], &EMPTY);
-                    Some(stack[stack_ptr])
+                    Some(unsafe { stack.get_unchecked(stack_ptr) })
                 }
             };
         };
 
         let mut node = &self.nodes[self.root_node_idx];
-        let mut curr_best: Option<Intersection> = None;
         loop {
             // TODO need to check if the leaf here is closer than current best.
             if node.is_leaf() {
                 let fp = node.first_prim();
                 for i in fp..fp + node.num_prims {
-                    let tri = self.mesh.face_verts(self.tris[i]);
-                    let Some(hit) = intersect_tri(&tri, r).map(|t| Intersection {
+                    let tri_idx = unsafe { *self.tris.get_unchecked(i) };
+                    let tri = self.mesh.face_verts(tri_idx);
+                    let Some(hit) = intersect_tri(&tri, r).filter(|&t| t < curr_best.t)
+                      .map(|t| Intersection {
                         t,
-                        face: self.tris[i],
+                        face: tri_idx,
                     }) else {
                         continue
                     };
-                    curr_best = Some(match curr_best {
-                        None => hit,
-                        Some(b) => hit.closer(b),
-                    });
+                    curr_best = hit;
                 }
                 node = if let Some(node) = pop!() { node } else { break };
                 continue;
@@ -499,16 +511,16 @@ impl<'a> BVH<'a> {
             // add children in aabb hit order
             let c1 = unsafe { self.nodes.get_unchecked(node.left_child()) };
             let c2 = unsafe { self.nodes.get_unchecked(node.right_child()) };
-            let d1 = intersect_aabb_dist(&c1.aabb, r, curr_best);
-            let d2 = intersect_aabb_dist(&c2.aabb, r, curr_best);
-            node = match (d1, d2) {
-                (None, None) => {
+            let d1 = intersect_aabb_dist(&c1.aabb, r, curr_best.t);
+            let d2 = intersect_aabb_dist(&c2.aabb, r, curr_best.t);
+            node = match (d1 > 1e30, d2 > 1e30) {
+                (true, true) => {
                     let Some(n) = pop!() else { break; };
                     n
                 }
-                (Some(d1), None) => c1,
-                (None, Some(d2)) => c2,
-                (Some(d1), Some(d2)) => {
+                (false, true) => c1,
+                (true, false) => c2,
+                (false, false) => {
                     if d1 < d2 {
                         push!(c2);
                         c1
@@ -519,9 +531,9 @@ impl<'a> BVH<'a> {
                 }
             }
         }
-        assert_eq!(stack_ptr, 0);
+        debug_assert_eq!(stack_ptr, 0);
 
-        curr_best
+        curr_best.to_option()
     }
 
     /// Finds triangles which intersect this aabb, pushing their indeces onto out

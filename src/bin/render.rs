@@ -2,6 +2,7 @@
 use clap::{ArgEnum, Parser};
 use image::{self, GenericImageView, ImageBuffer, Rgba};
 use rxatlas::{mesh::NormalWeight, obj, Ray, Surface, Vector};
+use std::time::Instant;
 
 /// Renders a mesh as example
 #[derive(Parser, Debug)]
@@ -39,6 +40,7 @@ pub enum RenderKind {
 
 pub fn main() {
     let args = Args::parse();
+    let start = Instant::now();
 
     let mesh = obj::parse(&args.mesh, false, false)
         .expect("Failed to parse mesh")
@@ -59,7 +61,8 @@ pub fn main() {
     let bvh = mesh.bvh();
 
     let mut out = ImageBuffer::new(args.res, args.res);
-    out.save("render.png").expect("Failed to save");
+
+    println!("[INFO]: Loaded BVH @ {:?}", start.elapsed());
 
     let eye = Vector::new([args.eye_x, args.eye_y, args.eye_z]);
     let up = Vector::new([0., 1., 0.]);
@@ -112,5 +115,7 @@ pub fn main() {
             out.put_pixel(x, args.res - y, Rgba([r, g, b, 255]));
         }
     }
+
+    println!("[INFO]: Rendered @ {:?}", start.elapsed());
     out.save("render.png").expect("Failed to save");
 }

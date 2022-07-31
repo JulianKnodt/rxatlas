@@ -36,7 +36,6 @@ impl<const N: usize> Vector<N> {
         Self([1.; N])
     }
     /// Computes the dot product of two vectors.
-    #[inline]
     pub fn dot(&self, o: &Self) -> f32 {
         let mut total = 0.;
         // Do explicit iter here instead of zip, since zip
@@ -195,7 +194,6 @@ impl Vec3 {
         self[2]
     }
 
-    #[inline]
     pub fn cross(&self, o: &Self) -> Self {
         let &Vector([x, y, z]) = self;
         let &Vector([a, b, c]) = o;
@@ -909,6 +907,19 @@ pub struct Intersection {
 }
 
 impl Intersection {
+    pub fn none() -> Self {
+        Intersection {
+            face: usize::MAX,
+            t: f32::INFINITY,
+        }
+    }
+    pub fn to_option(self) -> Option<Self> {
+        if self.face == usize::MAX || self.t.is_infinite() {
+            None
+        } else {
+            Some(self)
+        }
+    }
     #[inline]
     pub fn closer(self, o: Self) -> Self {
         if self.t < o.t {
@@ -946,6 +957,7 @@ impl Ray {
     }
 }
 
+#[inline]
 pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray) -> Option<f32> {
     const EPS: f32 = 1e-12;
     let e0 = p1 - p0;
@@ -955,18 +967,17 @@ pub fn intersect_tri(&[p0, p1, p2]: &[Vec3; 3], r: &Ray) -> Option<f32> {
     if -EPS < a && a < EPS {
         return None;
     }
-    let f = 1. / a;
     let s = r.origin - p0;
-    let u = f * s.dot(&h);
-    if u < 0. || u > 1. {
+    let u = s.dot(&h);
+    if u < 0. || u > a {
         return None;
     }
     let q = s.cross(&e0);
-    let v = f * r.dir.dot(&q);
-    if v < 0. || u + v > 1. {
+    let v = r.dir.dot(&q);
+    if v < 0. || u + v > a {
         return None;
     }
-    let t = f * e1.dot(&q);
+    let t = e1.dot(&q) / a;
     if t > EPS {
         Some(t)
     } else {
